@@ -3,8 +3,10 @@
 
 #include "datafile.h"
 #include "keydir.h"
+#include <dirent.h>
+#include <errno.h>
 
-#define MAX_FILES_BEFORE_MERGE 10
+#define MAX_FILES 10
 
 // eventually a bitmask of various opts?
 typedef enum bitcask_opts
@@ -17,7 +19,7 @@ typedef struct bitcask_handle
 {
     table_t keydir;
     datafile_t active_file;
-    datafile_t inactive_files[MAX_FILES_BEFORE_MERGE];
+    datafile_t inactive_files[MAX_FILES];
 } bitcask_handle_t;
 
 bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,

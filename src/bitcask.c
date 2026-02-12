@@ -1,6 +1,4 @@
 #include "../include/bitcask.h"
-#include <dirent.h>
-#include <errno.h>
 
 bool check_path(const char *dir_path)
 {
