@@ -28,14 +28,14 @@ static uint32_t hash_bytes(const uint8_t *key, size_t length)
     return hash;
 }
 
-static table_entry_t *find_entry(table_entry_t *entries, uint64_t capacity, const uint8_t *key, size_t key_length)
+static table_entry_t *find_entry(table_entry_t *entries, size_t capacity, const uint8_t *key, size_t key_length)
 {
     if (key_length < 1)
     {
         return NULL;
     }
 
-    uint32_t index = hash_bytes(key, key_length) % capacity;
+    size_t index = ((size_t)hash_bytes(key, key_length)) % capacity;
     table_entry_t *tombstone = NULL;
     for (;;)
     {
@@ -61,7 +61,7 @@ static table_entry_t *find_entry(table_entry_t *entries, uint64_t capacity, cons
     }
 }
 
-static void adjust_capacity(table_t *table, uint64_t capacity)
+static void adjust_capacity(table_t *table, size_t capacity)
 {
     table_entry_t *entries = malloc(sizeof(table_entry_t) * capacity);
     if (entries == NULL)
@@ -106,9 +106,9 @@ bool table_put(table_t *table, const uint8_t *key, size_t key_length, const keyd
         return false;
     }
 
-    if (table->count + 1 > table->capacity * TABLE_MAX_LOAD)
+    if (table->count + 1 > (table->capacity * TABLE_MAX_LOAD_NUM) / TABLE_MAX_LOAD_DEN)
     {
-        uint64_t capacity = table->capacity < 8 ? 8 : table->capacity * 2;
+        size_t capacity = table->capacity < 8 ? 8 : table->capacity * 2;
         adjust_capacity(table, capacity);
     }
 

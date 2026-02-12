@@ -1,26 +1,29 @@
+#ifndef bitcask_entry_h
+#define bitcask_entry_h
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-// Header is 20 bytes when encoded
-// | crc (4) | ts (8) | key_size (4) | value_size (4) |
-#define ENTRY_HEADER_SIZE 20
+// Header is 28 bytes when encoded
+// | crc (4) | ts (8) | key_size (8) | value_size (8) |
+#define ENTRY_HEADER_SIZE 28
 #define ENTRY_HEADER_CRC_OFFSET 0
 #define ENTRY_HEADER_TIMESTAMP_OFFSET 4
 #define ENTRY_HEADER_KEY_SIZE_OFFSET 12
-#define ENTRY_HEADER_VALUE_SIZE_OFFSET 16
+#define ENTRY_HEADER_VALUE_SIZE_OFFSET 20
 
 typedef struct entry_header
 {
     uint32_t crc;
     uint64_t timestamp;
-    uint32_t key_size;
-    uint32_t value_size;
+    uint64_t key_size;
+    uint64_t value_size;
 } entry_header_t;
 
 bool entry_header_encode(uint8_t out[ENTRY_HEADER_SIZE],
                          uint32_t crc, uint64_t timestamp,
-                         uint32_t key_size, uint32_t value_size);
+                         uint64_t key_size, uint64_t value_size);
 
 bool entry_header_decode(entry_header_t *out, const uint8_t in[ENTRY_HEADER_SIZE]);
 
@@ -63,3 +66,5 @@ static inline uint64_t decode_u64_le(const uint8_t *buf)
            ((uint64_t)buf[6] << 48) |
            ((uint64_t)buf[7] << 56);
 }
+
+#endif

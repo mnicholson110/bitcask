@@ -1,3 +1,6 @@
+#ifndef bitcask_crc_h
+#define bitcask_crc_h
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -12,3 +15,5 @@ static inline uint32_t crc32_final(uint32_t crc)
 {
     return ~crc;
 }
+
+#endif
