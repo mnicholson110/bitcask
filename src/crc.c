@@ -10,24 +10,23 @@ bool crc32_validate(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZ
     crc = crc32_update(crc, key, key_size);
     if (value_size > 0)
     {
-        uint8_t *value = malloc(value_size);
-        if (value == NULL)
+        uint8_t scratch[4096];
+        size_t remaining = value_size;
+        off_t pos = value_pos;
+
+        while (remaining > 0)
         {
-            return false;
-        }
-        size_t total = 0;
-        while (total < value_size)
-        {
-            ssize_t n = pread(fd, value + total, (size_t)value_size - total, (value_pos + total));
+            size_t want = remaining < sizeof(scratch) ? remaining : sizeof(scratch);
+            ssize_t n = pread(fd, scratch, want, pos);
             if (n <= 0)
             {
-                free(value);
                 return false;
             }
-            total += (size_t)n;
+            crc = crc32_update(crc, scratch, (size_t)n);
+
+            remaining -= (size_t)n;
+            pos += (off_t)n;
         }
-        crc = crc32_update(crc, value, value_size);
-        free(value);
     }
     crc = crc32_final(crc);
 
