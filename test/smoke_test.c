@@ -282,9 +282,9 @@ static bool test_crc_rejected_on_reopen(void)
 static bool test_benchmark(void)
 {
     const char *dir = "test/test-benchmark";
-    const size_t writes = 512000;
-    const size_t lookups = 256000;
-    const size_t value_size = 1024; // 1 KiB
+    const size_t writes = 5000000;
+    const size_t lookups = 2500000;
+    const size_t value_size = 512; // 0.5 KiB
     uint8_t *value = malloc(value_size);
 
     if (!rm_rf(dir))

@@ -33,22 +33,11 @@ bool crc32_validate(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZ
     return crc == expected_crc;
 }
 
-uint32_t crc32_update(uint32_t crc, const uint8_t *val, size_t n)
+uint32_t crc32_update(uint32_t crc, const uint8_t *buf, size_t n)
 {
     for (size_t i = 0; i < n; i++)
     {
-        crc ^= val[i];
-        for (size_t j = 0; j < 8; j++)
-        {
-            if ((crc & 1) == 1)
-            {
-                crc = (crc >> 1) ^ 0xEDB88320;
-            }
-            else
-            {
-                crc >>= 1;
-            }
-        };
-    };
+        crc = (crc >> 8) ^ crc32_table[(crc ^ buf[i]) & 0xFFu];
+    }
     return crc;
 }
