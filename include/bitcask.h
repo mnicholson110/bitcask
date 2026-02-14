@@ -3,10 +3,14 @@
 
 #include "datafile.h"
 #include "keydir.h"
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <inttypes.h>
+#include <stdlib.h>
+#include <time.h>
 
-#define MAX_FILES 10
+#define MAX_FILE_SIZE 268435456 // 256MB
 
 // eventually a bitmask of various opts?
 typedef enum bitcask_opts
@@ -19,7 +23,10 @@ typedef struct bitcask_handle
 {
     table_t keydir;
     datafile_t active_file;
-    datafile_t inactive_files[MAX_FILES];
+    datafile_t *inactive_files;
+    uint64_t file_count;
+    uint64_t inactive_capacity;
+    char *dir_path;
 } bitcask_handle_t;
 
 bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,

@@ -8,13 +8,16 @@ void init_table(table_t *table)
 }
 void free_table(table_t *table)
 {
-    for (size_t i = 0; i < table->capacity; i++)
+    if (table != NULL && table->entries != NULL)
     {
-        free(table->entries[i].key);
-        free(table->entries[i].value);
+        for (size_t i = 0; i < table->capacity; i++)
+        {
+            free(table->entries[i].key);
+            free(table->entries[i].value);
+        }
+        free(table->entries);
+        init_table(table);
     }
-    free(table->entries);
-    init_table(table);
 }
 
 static uint32_t hash_bytes(const uint8_t *key, size_t length)
