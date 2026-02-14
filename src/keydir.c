@@ -1,22 +1,22 @@
 #include "../include/keydir.h"
 
-void init_table(table_t *table)
+void keydir_init(keydir_t *keydir)
 {
-    table->count = 0;
-    table->capacity = 0;
-    table->entries = NULL;
+    keydir->count = 0;
+    keydir->capacity = 0;
+    keydir->entries = NULL;
 }
-void free_table(table_t *table)
+void keydir_free(keydir_t *keydir)
 {
-    if (table != NULL && table->entries != NULL)
+    if (keydir != NULL && keydir->entries != NULL)
     {
-        for (size_t i = 0; i < table->capacity; i++)
+        for (size_t i = 0; i < keydir->capacity; i++)
         {
-            free(table->entries[i].key);
-            free(table->entries[i].value);
+            free(keydir->entries[i].key);
+            free(keydir->entries[i].value);
         }
-        free(table->entries);
-        init_table(table);
+        free(keydir->entries);
+        keydir_init(keydir);
     }
 }
 
@@ -31,7 +31,7 @@ static uint32_t hash_bytes(const uint8_t *key, size_t length)
     return hash;
 }
 
-static table_entry_t *find_entry(table_entry_t *entries, size_t capacity, const uint8_t *key, size_t key_length)
+static keydir_entry_t *find_entry(keydir_entry_t *entries, size_t capacity, const uint8_t *key, size_t key_length)
 {
     if (key_length < 1)
     {
@@ -39,10 +39,10 @@ static table_entry_t *find_entry(table_entry_t *entries, size_t capacity, const 
     }
 
     size_t index = ((size_t)hash_bytes(key, key_length)) % capacity;
-    table_entry_t *tombstone = NULL;
+    keydir_entry_t *tombstone = NULL;
     for (;;)
     {
-        table_entry_t *entry = entries + index;
+        keydir_entry_t *entry = entries + index;
         if (entry->key == NULL)
         {
             if (entry->state != ENTRY_TOMBSTONE)
@@ -64,9 +64,9 @@ static table_entry_t *find_entry(table_entry_t *entries, size_t capacity, const 
     }
 }
 
-static void adjust_capacity(table_t *table, size_t capacity)
+static void adjust_capacity(keydir_t *keydir, size_t capacity)
 {
-    table_entry_t *entries = malloc(sizeof(table_entry_t) * capacity);
+    keydir_entry_t *entries = malloc(sizeof(keydir_entry_t) * capacity);
     if (entries == NULL)
     {
         perror("malloc failure (perror)");
@@ -79,48 +79,48 @@ static void adjust_capacity(table_t *table, size_t capacity)
         entries[i].state = ENTRY_EMPTY;
     }
 
-    table->count = 0;
-    for (size_t i = 0; i < table->capacity; i++)
+    keydir->count = 0;
+    for (size_t i = 0; i < keydir->capacity; i++)
     {
-        table_entry_t *entry = table->entries + i;
+        keydir_entry_t *entry = keydir->entries + i;
         if (entry->state == ENTRY_TOMBSTONE || entry->state == ENTRY_EMPTY)
         {
             assert(entry->key == NULL);
             continue;
         }
 
-        table_entry_t *dest = find_entry(entries, capacity, entry->key, entry->key_length);
+        keydir_entry_t *dest = find_entry(entries, capacity, entry->key, entry->key_length);
         dest->key = entry->key;
         dest->key_length = entry->key_length;
         dest->value = entry->value;
         dest->state = entry->state;
-        table->count++;
+        keydir->count++;
     }
 
-    free(table->entries);
-    table->entries = entries;
-    table->capacity = capacity;
+    free(keydir->entries);
+    keydir->entries = entries;
+    keydir->capacity = capacity;
 }
 
-bool table_put(table_t *table, const uint8_t *key, size_t key_length, const keydir_value_t *keydir_value)
+bool keydir_put(keydir_t *keydir, const uint8_t *key, size_t key_length, const keydir_value_t *keydir_value)
 {
     if (key_length < 1 || keydir_value == NULL)
     {
         return false;
     }
 
-    if (table->count + 1 > (table->capacity * TABLE_MAX_LOAD_NUM) / TABLE_MAX_LOAD_DEN)
+    if (keydir->count + 1 > (keydir->capacity * TABLE_MAX_LOAD_NUM) / TABLE_MAX_LOAD_DEN)
     {
-        size_t capacity = table->capacity < 8 ? 8 : table->capacity * 2;
-        adjust_capacity(table, capacity);
+        size_t capacity = keydir->capacity < 8 ? 8 : keydir->capacity * 2;
+        adjust_capacity(keydir, capacity);
     }
 
-    table_entry_t *entry = find_entry(table->entries, table->capacity, key, key_length);
+    keydir_entry_t *entry = find_entry(keydir->entries, keydir->capacity, key, key_length);
 
     switch (entry->state)
     {
     case ENTRY_EMPTY:
-        table->count++;
+        keydir->count++;
         /* fall through */
     case ENTRY_TOMBSTONE:
         assert(entry->key == NULL);
@@ -156,14 +156,14 @@ bool table_put(table_t *table, const uint8_t *key, size_t key_length, const keyd
     return true;
 }
 
-const keydir_value_t *table_get(table_t *table, const uint8_t *key, size_t key_length)
+const keydir_value_t *keydir_get(keydir_t *keydir, const uint8_t *key, size_t key_length)
 {
-    if (table->count == 0 || key_length < 1)
+    if (keydir->count == 0 || key_length < 1)
     {
         return NULL;
     }
 
-    table_entry_t *entry = find_entry(table->entries, table->capacity, key, key_length);
+    keydir_entry_t *entry = find_entry(keydir->entries, keydir->capacity, key, key_length);
     if (entry->key == NULL)
     {
         return NULL;
@@ -172,14 +172,14 @@ const keydir_value_t *table_get(table_t *table, const uint8_t *key, size_t key_l
     return entry->value;
 }
 
-bool table_delete(table_t *table, const uint8_t *key, size_t key_length)
+bool keydir_delete(keydir_t *keydir, const uint8_t *key, size_t key_length)
 {
-    if (table->count == 0 || key_length < 1)
+    if (keydir->count == 0 || key_length < 1)
     {
         return false;
     }
 
-    table_entry_t *entry = find_entry(table->entries, table->capacity, key, key_length);
+    keydir_entry_t *entry = find_entry(keydir->entries, keydir->capacity, key, key_length);
     if (entry->state == ENTRY_OCCUPIED)
     {
         free(entry->key);

@@ -23,7 +23,7 @@ static bool read_full(int fd, uint8_t *buf, size_t n)
     return true;
 }
 
-static bool populate_keydir(datafile_t *datafile, table_t *keydir)
+static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
 {
     off_t end = lseek(datafile->fd, 0, SEEK_END);
     if (end < 0)
@@ -95,14 +95,22 @@ static bool populate_keydir(datafile_t *datafile, table_t *keydir)
             return false;
         }
 
+        if (!crc32_validate(header.crc, hdr_buf, key, header.key_size, datafile->fd, value_offset, header.value_size))
+        {
+            free(key);
+            return false;
+        }
+
         if (header.value_size != 0)
         {
-            keydir_value_t keydir_value = {.file_id = datafile->file_id,
+
+            keydir_value_t keydir_value = {.crc = header.crc,
+                                           .file_id = datafile->file_id,
                                            .value_pos = (uint64_t)value_offset,
                                            .value_size = header.value_size,
                                            .timestamp = header.timestamp};
 
-            if (!table_put(keydir, key, header.key_size, &keydir_value))
+            if (!keydir_put(keydir, key, header.key_size, &keydir_value))
             {
                 free(key);
                 return false;
@@ -110,7 +118,7 @@ static bool populate_keydir(datafile_t *datafile, table_t *keydir)
         }
         else
         {
-            table_delete(keydir, key, header.key_size);
+            keydir_delete(keydir, key, header.key_size);
         }
         free(key);
 
@@ -163,31 +171,25 @@ static bool parse_datafile_name(const struct dirent *dp, uint64_t *out)
     return true;
 }
 
-static bool check_path(const char *dir_path)
+static bool check_path(const char *dir_path, bitcask_opts_t opts)
 {
-    if (mkdir(dir_path, 0755) != 0)
+    struct stat sb;
+    if (stat(dir_path, &sb) == 0)
     {
-        if (errno != EEXIST)
-        {
-            return false;
-        }
-        else
-        {
-            struct stat sb;
-            if (stat(dir_path, &sb) == 0)
-            {
-                if (!S_ISDIR(sb.st_mode))
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                return false;
-            }
-        }
+        return S_ISDIR(sb.st_mode);
     }
-    return true;
+
+    if (errno != ENOENT)
+    {
+        return false;
+    }
+
+    if (opts == BITCASK_READ_ONLY)
+    {
+        return false;
+    }
+
+    return mkdir(dir_path, 0755) == 0;
 }
 
 static bool scan_datafiles(DIR *dirp, uint64_t **ids, size_t *count)
@@ -216,6 +218,7 @@ static bool scan_datafiles(DIR *dirp, uint64_t **ids, size_t *count)
             void *tmp = realloc(*ids, sizeof(uint64_t) * limit);
             if (tmp == NULL)
             {
+                free(*ids);
                 return false;
             }
             *ids = tmp;
@@ -225,7 +228,7 @@ static bool scan_datafiles(DIR *dirp, uint64_t **ids, size_t *count)
     return true;
 }
 
-bool rotate_active_file(bitcask_handle_t *bitcask)
+static bool rotate_active_file(bitcask_handle_t *bitcask)
 {
     if (!bitcask_sync(bitcask))
     {
@@ -299,7 +302,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     bitcask->keydir.capacity = 0;
     bitcask->keydir.entries = NULL;
 
-    if (!check_path(dir_path))
+    if (!check_path(dir_path, opts))
     {
         return false;
     }
@@ -324,7 +327,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         closedir(dirp);
         return false;
     }
-    bitcask->file_count = count;
+
     // allocate enough space for the number of inactive files to double (+1)
     bitcask->inactive_capacity = count == 0 ? 2 : count * 2;
     bitcask->inactive_files = malloc(sizeof(datafile_t) * bitcask->inactive_capacity);
@@ -339,7 +342,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     // buffer for filepaths
     size_t dir_len = strlen(dir_path);
     bool has_slash = (dir_len > 0 && dir_path[dir_len - 1] == '/');
-    size_t path_len = dir_len + (has_slash ? 0 : 1) + 10;
+    size_t path_len = dir_len + (has_slash ? 0 : 1) + 32;
     char *file_path = malloc(path_len);
     bitcask->dir_path = strdup(dir_path);
     if (file_path == NULL || bitcask->dir_path == NULL)
@@ -354,7 +357,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     {
         // create initial datafile and set it as active
         datafile_init(&bitcask->active_file);
-        bitcask->file_count = 1;
+
         // open datafile
         int n = snprintf(file_path, path_len, "%s%s%02" PRIu64 ".data", dir_path,
                          has_slash ? "" : "/", (uint64_t)1);
@@ -376,6 +379,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
                 bitcask_close(bitcask);
                 return false;
             }
+            bitcask->file_count = 1;
         }
         else
         {
@@ -387,9 +391,10 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
                 bitcask_close(bitcask);
                 return false;
             }
+            bitcask->file_count = 1;
         }
         // initialize empty keydir
-        init_table(&bitcask->keydir);
+        keydir_init(&bitcask->keydir);
     }
     else
     {
@@ -417,6 +422,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
                 bitcask_close(bitcask);
                 return false;
             }
+            bitcask->file_count++;
         }
         else
         {
@@ -428,6 +434,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
                 bitcask_close(bitcask);
                 return false;
             }
+            bitcask->file_count++;
         }
 
         // set rest as inactive
@@ -453,9 +460,10 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
                 bitcask_close(bitcask);
                 return false;
             }
+            bitcask->file_count++;
         }
         // rebuild keydir
-        init_table(&bitcask->keydir);
+        keydir_init(&bitcask->keydir);
         // scan files from inactive[0] thru to active file and rebuild keydir
         for (size_t i = 0; i < count - 1; i++)
         {
@@ -487,7 +495,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
 bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
                  size_t key_size, uint8_t **out, size_t *out_size)
 {
-    const keydir_value_t *entry = table_get(&bitcask->keydir, key, key_size);
+    const keydir_value_t *entry = keydir_get(&bitcask->keydir, key, key_size);
     if (entry == NULL)
     {
         return false;
@@ -506,6 +514,7 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
             if (bitcask->inactive_files[i].file_id == entry->file_id)
             {
                 target = &bitcask->inactive_files[i];
+                break;
             }
         }
     }
@@ -515,11 +524,28 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
         return false;
     }
 
+    uint8_t hdr_buf[ENTRY_HEADER_SIZE];
+    if (!entry_header_encode(hdr_buf, entry->crc, entry->timestamp, key_size, entry->value_size))
+    {
+        return false;
+    }
+    if (!crc32_validate(entry->crc, hdr_buf, key, key_size, target->fd, entry->value_pos, entry->value_size))
+    {
+        return false;
+    }
+
     *out = malloc(entry->value_size);
+    if (*out == NULL)
+    {
+        return false;
+    }
     *out_size = entry->value_size;
 
     if (!datafile_read_value_at(target, entry->value_pos, entry->value_size, *out))
     {
+        free(*out);
+        *out = NULL;
+        *out_size = 0;
         return false;
     }
     return true;
@@ -541,11 +567,11 @@ bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key,
 
     if (value_size == 0)
     {
-        table_delete(&bitcask->keydir, key, key_size);
+        keydir_delete(&bitcask->keydir, key, key_size);
         return true;
     }
 
-    if (!table_put(&bitcask->keydir, key, key_size, &out))
+    if (!keydir_put(&bitcask->keydir, key, key_size, &out))
     {
         return false;
     }
@@ -572,11 +598,11 @@ bool bitcask_delete(bitcask_handle_t *bitcask, const uint8_t *key, size_t key_si
 
 bool bitcask_sync(bitcask_handle_t *bitcask)
 {
-    if (!fsync(bitcask->active_file.fd))
+    if (!datafile_sync(&bitcask->active_file))
     {
-        return true;
+        return false;
     }
-    return false;
+    return true;
 }
 void bitcask_close(bitcask_handle_t *bitcask)
 {
@@ -602,5 +628,5 @@ void bitcask_close(bitcask_handle_t *bitcask)
         bitcask->dir_path = NULL;
     }
     bitcask->file_count = 0;
-    free_table(&bitcask->keydir);
+    keydir_free(&bitcask->keydir);
 }

@@ -21,7 +21,7 @@ typedef enum bitcask_opts
 
 typedef struct bitcask_handle
 {
-    table_t keydir;
+    keydir_t keydir;
     datafile_t active_file;
     datafile_t *inactive_files;
     uint64_t file_count;

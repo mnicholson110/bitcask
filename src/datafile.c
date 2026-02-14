@@ -168,6 +168,7 @@ bool datafile_append(datafile_t *datafile,
         return false;
     }
 
+    out->crc = crc;
     out->timestamp = timestamp;
     out->file_id = datafile->file_id;
     out->value_size = (uint64_t)value_size;
