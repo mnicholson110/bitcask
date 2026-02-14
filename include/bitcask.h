@@ -10,8 +10,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define MAX_FILE_SIZE 268435456 // 256MB
-
 // eventually a bitmask of various opts?
 typedef enum bitcask_opts
 {

@@ -13,6 +13,8 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+#define MAX_FILE_SIZE 268435456 // 256MB
+
 typedef enum datafile_mode
 {
     DATAFILE_READ,
@@ -23,7 +25,7 @@ typedef struct datafile
 {
     int fd;
     uint64_t file_id;
-    uint64_t write_offset;
+    off_t write_offset;
     datafile_mode_t mode;
 } datafile_t;
 
@@ -44,7 +46,7 @@ bool datafile_append(datafile_t *datafile,
                      keydir_value_t *out_keydir_value);
 
 bool datafile_read_value_at(const datafile_t *datafile,
-                            uint64_t value_pos,
+                            off_t value_pos,
                             size_t value_size,
                             uint8_t *out_value);
 

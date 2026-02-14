@@ -2,29 +2,6 @@
 
 #define BITCASK_SSIZE_MAX ((size_t)(~(size_t)0 >> 1))
 
-static bool u64_to_off_t(uint64_t in, off_t *out)
-{
-    off_t converted = (off_t)in;
-    if (converted < 0 || (uint64_t)converted != in)
-    {
-        return false;
-    }
-
-    *out = converted;
-    return true;
-}
-
-static bool off_t_to_u64(off_t in, uint64_t *out)
-{
-    if (in < 0)
-    {
-        return false;
-    }
-
-    *out = (uint64_t)in;
-    return true;
-}
-
 void datafile_init(datafile_t *datafile)
 {
     datafile->fd = -1;
@@ -43,8 +20,13 @@ bool datafile_open(datafile_t *datafile, const char *path,
         return false;
     }
 
-    off_t end = lseek(fd, 0, SEEK_END);
-    if (end < 0)
+    struct stat st;
+    if (fstat(fd, &st) < 0)
+    {
+        close(fd);
+        return false;
+    }
+    if (st.st_size < 0 || st.st_size > MAX_FILE_SIZE)
     {
         close(fd);
         return false;
@@ -52,7 +34,7 @@ bool datafile_open(datafile_t *datafile, const char *path,
 
     datafile->fd = fd;
     datafile->file_id = file_id;
-    datafile->write_offset = (uint64_t)end;
+    datafile->write_offset = st.st_size;
     datafile->mode = mode;
     return true;
 }
@@ -97,33 +79,7 @@ bool datafile_append(datafile_t *datafile,
         return false;
     }
 
-    if (key_size > SIZE_MAX - ENTRY_HEADER_SIZE || value_size > SIZE_MAX - (ENTRY_HEADER_SIZE + key_size))
-    {
-        return false;
-    }
     size_t total = ENTRY_HEADER_SIZE + key_size + value_size;
-
-    if (total > BITCASK_SSIZE_MAX)
-    {
-        return false;
-    }
-
-    if (datafile->write_offset > UINT64_MAX - (uint64_t)total)
-    {
-        return false;
-    }
-
-    off_t write_offset;
-    if (!u64_to_off_t(datafile->write_offset, &write_offset))
-    {
-        return false;
-    }
-
-    off_t pos = lseek(datafile->fd, write_offset, SEEK_SET);
-    if (pos < 0)
-    {
-        return false;
-    }
 
     // encode header values
     uint8_t header[ENTRY_HEADER_SIZE];
@@ -148,37 +104,26 @@ bool datafile_append(datafile_t *datafile,
             {.iov_base = (void *)key, .iov_len = key_size},
             {.iov_base = (void *)value, .iov_len = value_size},
         };
-    ssize_t written = writev(datafile->fd, iov, 3);
+    ssize_t written = pwritev(datafile->fd, iov, 3, datafile->write_offset);
     if (written < 0 || (size_t)written != total)
     {
         return false;
     }
 
-    datafile->write_offset += (uint64_t)total;
-
-    uint64_t entry_pos;
-    if (!off_t_to_u64(pos, &entry_pos))
-    {
-        return false;
-    }
-
-    if ((uint64_t)ENTRY_HEADER_SIZE > UINT64_MAX - entry_pos ||
-        (uint64_t)key_size > UINT64_MAX - (entry_pos + (uint64_t)ENTRY_HEADER_SIZE))
-    {
-        return false;
-    }
+    off_t entry_pos = datafile->write_offset;
+    datafile->write_offset += total;
 
     out->crc = crc;
     out->timestamp = timestamp;
     out->file_id = datafile->file_id;
     out->value_size = (uint64_t)value_size;
-    out->value_pos = entry_pos + (uint64_t)ENTRY_HEADER_SIZE + (uint64_t)key_size;
+    out->value_pos = entry_pos + ENTRY_HEADER_SIZE + key_size;
 
     return true;
 }
 
 bool datafile_read_value_at(const datafile_t *datafile,
-                            uint64_t value_pos,
+                            off_t value_pos,
                             size_t value_size,
                             uint8_t *out)
 {
@@ -187,24 +132,7 @@ bool datafile_read_value_at(const datafile_t *datafile,
         return false;
     }
 
-    if (value_size > BITCASK_SSIZE_MAX)
-    {
-        return false;
-    }
-
-    off_t read_offset;
-    if (!u64_to_off_t(value_pos, &read_offset))
-    {
-        return false;
-    }
-
-    off_t pos = lseek(datafile->fd, read_offset, SEEK_SET);
-    if (pos < 0)
-    {
-        return false;
-    }
-
-    ssize_t read_bytes = read(datafile->fd, out, value_size);
+    ssize_t read_bytes = pread(datafile->fd, out, value_size, value_pos);
     if (read_bytes < 0 || (size_t)read_bytes != value_size)
     {
         return false;

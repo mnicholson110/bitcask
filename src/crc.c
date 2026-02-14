@@ -2,7 +2,7 @@
 
 bool crc32_validate(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZE],
                     const uint8_t *key, size_t key_size,
-                    int fd, uint64_t value_pos, uint64_t value_size)
+                    int fd, off_t value_pos, size_t value_size)
 {
     // compute crc
     uint32_t crc = crc_init();

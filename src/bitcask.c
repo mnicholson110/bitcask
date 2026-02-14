@@ -7,39 +7,13 @@ static int cmp_u64(const void *a, const void *b)
     return (x > y) - (x < y); // avoids overflow from subtraction
 }
 
-static bool read_full(int fd, uint8_t *buf, size_t n)
-{
-    size_t total = 0;
-    while (total < n)
-    {
-        ssize_t bytes = read(fd, buf + total, n - total);
-        if (bytes <= 0)
-        {
-            return false;
-        }
-        total += (size_t)bytes;
-    }
-
-    return true;
-}
-
 static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
 {
-    off_t end = lseek(datafile->fd, 0, SEEK_END);
-    if (end < 0)
-    {
-        return false;
-    }
+    off_t offset = 0;
 
-    off_t offset = lseek(datafile->fd, 0, SEEK_SET);
-    if (offset < 0)
+    while (offset < datafile->write_offset)
     {
-        return false;
-    }
-
-    while (offset < end)
-    {
-        uint64_t remaining = (uint64_t)(end - offset);
+        uint64_t remaining = (uint64_t)(datafile->write_offset - offset);
         if (remaining < (uint64_t)ENTRY_HEADER_SIZE)
         {
             return false;
@@ -47,10 +21,7 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
 
         entry_header_t header;
         uint8_t hdr_buf[ENTRY_HEADER_SIZE];
-        if (!read_full(datafile->fd, hdr_buf, ENTRY_HEADER_SIZE))
-        {
-            return false;
-        }
+        pread(datafile->fd, hdr_buf, ENTRY_HEADER_SIZE, offset);
 
         if (!entry_header_decode(&header, hdr_buf))
         {
@@ -77,25 +48,18 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
             return false;
         }
 
+        offset += ENTRY_HEADER_SIZE;
+
         uint8_t *key = malloc(header.key_size);
         if (key == NULL)
         {
             return false;
         }
-        if (!read_full(datafile->fd, key, header.key_size))
-        {
-            free(key);
-            return false;
-        }
+        pread(datafile->fd, key, header.key_size, offset);
 
-        off_t value_offset = lseek(datafile->fd, 0, SEEK_CUR);
-        if (value_offset < 0)
-        {
-            free(key);
-            return false;
-        }
+        offset += header.key_size;
 
-        if (!crc32_validate(header.crc, hdr_buf, key, header.key_size, datafile->fd, value_offset, header.value_size))
+        if (!crc32_validate(header.crc, hdr_buf, key, header.key_size, datafile->fd, offset, header.value_size))
         {
             free(key);
             return false;
@@ -106,7 +70,7 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
 
             keydir_value_t keydir_value = {.crc = header.crc,
                                            .file_id = datafile->file_id,
-                                           .value_pos = (uint64_t)value_offset,
+                                           .value_pos = offset,
                                            .value_size = header.value_size,
                                            .timestamp = header.timestamp};
 
@@ -122,19 +86,7 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
         }
         free(key);
 
-        if (header.value_size > 0)
-        {
-            if (lseek(datafile->fd, header.value_size, SEEK_CUR) < 0)
-            {
-                return false;
-            }
-        }
-
-        offset = lseek(datafile->fd, 0, SEEK_CUR);
-        if (offset < 0)
-        {
-            return false;
-        }
+        offset += header.value_size;
     }
     return true;
 }
@@ -301,6 +253,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     bitcask->keydir.count = 0;
     bitcask->keydir.capacity = 0;
     bitcask->keydir.entries = NULL;
+    datafile_init(&bitcask->active_file);
 
     if (!check_path(dir_path, opts))
     {
@@ -355,9 +308,6 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
 
     if (count == 0)
     {
-        // create initial datafile and set it as active
-        datafile_init(&bitcask->active_file);
-
         // open datafile
         int n = snprintf(file_path, path_len, "%s%s%02" PRIu64 ".data", dir_path,
                          has_slash ? "" : "/", (uint64_t)1);
@@ -401,7 +351,6 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         // find max file_id, set as active
         uint64_t active_id = ids[count - 1];
 
-        datafile_init(&bitcask->active_file);
         int n = snprintf(file_path, path_len, "%s%s%02" PRIu64 ".data", dir_path,
                          has_slash ? "" : "/", active_id);
         if (n < 0 || (size_t)n >= path_len)
@@ -554,6 +503,34 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
 bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key,
                  size_t key_size, const uint8_t *value, size_t value_size)
 {
+    if (bitcask->active_file.mode == DATAFILE_READ)
+    {
+        // this is a read-only handle, put not allowed
+        return false;
+    }
+
+    const off_t max_file = (off_t)MAX_FILE_SIZE;
+    const off_t hdr = (off_t)ENTRY_HEADER_SIZE;
+
+    if (key_size > (size_t)(max_file - hdr))
+    {
+        return false;
+    }
+    off_t key_sz = (off_t)key_size;
+
+    if (value_size > (size_t)(max_file - hdr - key_sz))
+    {
+        return false;
+    }
+    off_t val_sz = (off_t)value_size;
+
+    off_t entry_total = hdr + key_sz + val_sz;
+    if (bitcask->active_file.write_offset > max_file - entry_total)
+    {
+        if (!rotate_active_file(bitcask))
+            return false;
+    }
+
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     uint64_t timestamp = (uint64_t)ts.tv_sec * 1000000000 + (uint64_t)ts.tv_nsec;
@@ -574,14 +551,6 @@ bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key,
     if (!keydir_put(&bitcask->keydir, key, key_size, &out))
     {
         return false;
-    }
-
-    if (out.value_pos + out.value_size >= MAX_FILE_SIZE)
-    {
-        if (!rotate_active_file(bitcask))
-        {
-            return false;
-        }
     }
 
     return true;
