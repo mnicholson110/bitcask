@@ -518,15 +518,10 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
     *out = malloc(entry->value_size);
     *out_size = entry->value_size;
 
-    off_t value_off = lseek(target->fd, entry->value_pos, SEEK_SET);
-    if (value_off < 0 || (uint64_t)value_off != entry->value_pos)
+    if (!datafile_read_value_at(target, entry->value_pos, entry->value_size, *out))
     {
-        free(*out);
         return false;
     }
-
-    read(target->fd, *out, *out_size);
-    // handle read error here
     return true;
 }
 
