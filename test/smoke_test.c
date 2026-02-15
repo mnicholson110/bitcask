@@ -37,6 +37,31 @@ static bool rm_rf(const char *path)
     return system(cmd) == 0;
 }
 
+static bool cleanup_test_dirs(void)
+{
+    const char *dirs[] = {
+        "test/test-basic",
+        "test/test-reopen",
+        "test/test-readonly-existing",
+        "test/test-readonly-missing",
+        "test/test-crc-get",
+        "test/test-crc-open",
+        "test/test-benchmark",
+    };
+
+    bool ok = true;
+    size_t n = sizeof(dirs) / sizeof(dirs[0]);
+    for (size_t i = 0; i < n; i++)
+    {
+        if (!rm_rf(dirs[i]))
+        {
+            ok = false;
+        }
+    }
+
+    return ok;
+}
+
 static bool path_exists(const char *path)
 {
     struct stat sb;
@@ -405,6 +430,11 @@ static bool test_benchmark(void)
 
 int main(void)
 {
+    if (!cleanup_test_dirs())
+    {
+        return 1;
+    }
+
     test_case_t tests[] = {
         {.name = "basic_put_get_delete", .fn = test_basic_put_get_delete},
         {.name = "reopen_persistence", .fn = test_reopen_persistence},
@@ -425,6 +455,11 @@ int main(void)
         {
             passed++;
         }
+    }
+
+    if (!cleanup_test_dirs())
+    {
+        return 1;
     }
 
     printf("summary: %zu/%zu passed\n", passed, total);

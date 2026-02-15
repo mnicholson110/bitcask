@@ -478,10 +478,6 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
     {
         return false;
     }
-    if (!crc32_validate(entry->crc, hdr_buf, key, key_size, target->fd, entry->value_pos, entry->value_size))
-    {
-        return false;
-    }
 
     *out = malloc(entry->value_size);
     if (*out == NULL)
@@ -497,6 +493,15 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
         *out_size = 0;
         return false;
     }
+
+    if (!crc32_validate_buf(entry->crc, hdr_buf, key, key_size, *out, entry->value_size))
+    {
+        free(*out);
+        *out = NULL;
+        *out_size = 0;
+        return false;
+    }
+
     return true;
 }
 

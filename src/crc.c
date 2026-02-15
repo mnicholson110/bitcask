@@ -1,5 +1,19 @@
 #include "../include/crc.h"
 
+bool crc32_validate_buf(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZE],
+                        const uint8_t *key, size_t key_size,
+                        const uint8_t *value, size_t value_size)
+{
+    // compute crc
+    uint32_t crc = crc_init();
+    crc = crc32_update(crc, header + ENTRY_HEADER_TIMESTAMP_OFFSET, ENTRY_HEADER_SIZE - ENTRY_HEADER_TIMESTAMP_OFFSET);
+    crc = crc32_update(crc, key, key_size);
+    crc = crc32_update(crc, value, value_size);
+    crc = crc32_final(crc);
+
+    return crc == expected_crc;
+}
+
 bool crc32_validate(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZE],
                     const uint8_t *key, size_t key_size,
                     int fd, off_t value_pos, size_t value_size)
