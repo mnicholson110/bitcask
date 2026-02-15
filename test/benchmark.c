@@ -292,7 +292,10 @@ static bool run_read_workload(const bench_config_t *cfg)
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double sec = elapsed_seconds(&t0, &t1);
     double ops = (double)cfg->reads / sec;
-    printf("[read]  ops=%zu time=%.3fs ops/s=%.0f\n", cfg->reads, sec, ops);
+    double ns_per_op = (sec * 1000000000.0) / (double)cfg->reads;
+    double mib = ((double)cfg->reads * (double)cfg->value_size) / (1024.0 * 1024.0);
+    printf("[read]  ops=%zu value_size=%zuB time=%.3fs ops/s=%.0f ns/op=%.0f throughput=%.2f MiB/s\n",
+           cfg->reads, cfg->value_size, sec, ops, ns_per_op, mib / sec);
 
     bitcask_close(&db);
     return true;
