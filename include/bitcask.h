@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
 
@@ -22,8 +23,8 @@ typedef struct bitcask_handle
     keydir_t keydir;
     datafile_t active_file;
     datafile_t *inactive_files;
-    uint64_t file_count;
-    uint64_t inactive_capacity;
+    size_t file_count;
+    size_t inactive_capacity;
     char *dir_path;
 } bitcask_handle_t;
 

@@ -11,7 +11,7 @@ void datafile_init(datafile_t *datafile)
 }
 
 bool datafile_open(datafile_t *datafile, const char *path,
-                   uint64_t file_id, datafile_mode_t mode)
+                   uint32_t file_id, datafile_mode_t mode)
 {
     int flags = (mode == DATAFILE_READ) ? O_RDONLY : (O_RDWR | O_CREAT);
     int fd = open(path, flags, 0644);
@@ -65,8 +65,8 @@ bool datafile_sync(datafile_t *datafile)
 
 bool datafile_append(datafile_t *datafile,
                      uint64_t timestamp,
-                     const uint8_t *key, size_t key_size,
-                     const uint8_t *value, size_t value_size,
+                     const uint8_t *key, uint32_t key_size,
+                     const uint8_t *value, uint32_t value_size,
                      keydir_value_t *out)
 {
     if (datafile->fd == -1 || datafile->mode == DATAFILE_READ || out == NULL)
@@ -78,15 +78,11 @@ bool datafile_append(datafile_t *datafile,
     {
         return false;
     }
-
     size_t total = ENTRY_HEADER_SIZE + key_size + value_size;
 
     // encode header values
     uint8_t header[ENTRY_HEADER_SIZE];
-    if (!entry_header_encode(header, 0, timestamp, (uint64_t)key_size, (uint64_t)value_size))
-    {
-        return false;
-    };
+    entry_header_encode(header, 0, timestamp, key_size, value_size);
 
     // compute crc
     uint32_t crc = crc_init();
@@ -116,15 +112,15 @@ bool datafile_append(datafile_t *datafile,
     out->crc = crc;
     out->timestamp = timestamp;
     out->file_id = datafile->file_id;
-    out->value_size = (uint64_t)value_size;
+    out->value_size = value_size;
     out->value_pos = entry_pos + ENTRY_HEADER_SIZE + key_size;
 
     return true;
 }
 
 bool datafile_read_value_at(const datafile_t *datafile,
-                            off_t value_pos,
-                            size_t value_size,
+                            uint32_t value_pos,
+                            uint32_t value_size,
                             uint8_t *out)
 {
     if (datafile->fd == -1 || out == NULL)

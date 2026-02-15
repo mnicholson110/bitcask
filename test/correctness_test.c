@@ -31,6 +31,7 @@ static bool cleanup_test_dirs(void)
 {
     const char *dirs[] = {
         "test/test-basic",
+        "test/test-limits",
         "test/test-reopen",
         "test/test-readonly-existing",
         "test/test-readonly-missing",
@@ -81,6 +82,11 @@ static bool write_byte_at(const char *path, long offset, uint8_t byte)
         return false;
     }
     return true;
+}
+
+static long value_offset_for_key_size(size_t key_size)
+{
+    return (long)(ENTRY_HEADER_SIZE + key_size);
 }
 
 static bool test_basic_put_get_delete(void)
@@ -136,6 +142,51 @@ static bool test_basic_put_get_delete(void)
 
     bitcask_close(&db);
     return true;
+}
+
+static bool test_size_limits(void)
+{
+    const char *dir = "test/test-limits";
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+
+    bitcask_handle_t db;
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+
+    size_t too_big_key_size = MAX_KEY_SIZE + 1;
+    size_t too_big_value_size = MAX_VALUE_SIZE + 1;
+    uint8_t *too_big_key = malloc(too_big_key_size);
+    uint8_t *too_big_value = malloc(too_big_value_size);
+    if (too_big_key == NULL || too_big_value == NULL)
+    {
+        free(too_big_key);
+        free(too_big_value);
+        bitcask_close(&db);
+        return false;
+    }
+
+    memset(too_big_key, 'k', too_big_key_size);
+    memset(too_big_value, 'v', too_big_value_size);
+
+    bool ok = true;
+    if (bitcask_put(&db, too_big_key, too_big_key_size, (const uint8_t *)"x", 1))
+    {
+        ok = false;
+    }
+    if (bitcask_put(&db, (const uint8_t *)"k", 1, too_big_value, too_big_value_size))
+    {
+        ok = false;
+    }
+
+    free(too_big_key);
+    free(too_big_value);
+    bitcask_close(&db);
+    return ok;
 }
 
 static bool test_reopen_persistence(void)
@@ -247,7 +298,7 @@ static bool test_crc_rejected_on_get(void)
         return false;
     }
 
-    if (!write_byte_at(datafile, 29L, (uint8_t)'X'))
+    if (!write_byte_at(datafile, value_offset_for_key_size(1), (uint8_t)'X'))
     {
         bitcask_close(&db);
         return false;
@@ -282,7 +333,7 @@ static bool test_crc_rejected_on_reopen(void)
     }
     bitcask_close(&db);
 
-    if (!write_byte_at(datafile, 29L, (uint8_t)'X'))
+    if (!write_byte_at(datafile, value_offset_for_key_size(1), (uint8_t)'X'))
     {
         return false;
     }
@@ -304,6 +355,7 @@ int main(void)
 
     test_case_t tests[] = {
         {.name = "basic_put_get_delete", .fn = test_basic_put_get_delete},
+        {.name = "size_limits", .fn = test_size_limits},
         {.name = "reopen_persistence", .fn = test_reopen_persistence},
         {.name = "read_only_semantics", .fn = test_read_only_semantics},
         {.name = "crc_rejected_on_get", .fn = test_crc_rejected_on_get},

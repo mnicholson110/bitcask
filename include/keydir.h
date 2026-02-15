@@ -22,9 +22,9 @@ typedef enum entry_state
 typedef struct keydir_value
 {
     uint32_t crc;
-    uint64_t file_id;
-    uint64_t value_size;
-    off_t value_pos;
+    uint32_t file_id;
+    uint32_t value_size;
+    uint32_t value_pos;
     uint64_t timestamp;
 } keydir_value_t;
 
