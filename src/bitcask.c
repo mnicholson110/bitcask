@@ -440,7 +440,7 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
         return false;
     }
 
-    if (!crc32_validate_buf(header.crc, hdr_buf, key, key_size, *out, entry->value_size))
+    if (!crc32_validate_buf(hdr_buf, key, key_size, *out, entry->value_size))
     {
         free(*out);
         *out = NULL;
