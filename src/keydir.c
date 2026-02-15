@@ -13,7 +13,6 @@ void keydir_free(keydir_t *keydir)
         for (size_t i = 0; i < keydir->capacity; i++)
         {
             free(keydir->entries[i].key);
-            free(keydir->entries[i].value);
         }
         free(keydir->entries);
         keydir_init(keydir);
@@ -75,7 +74,6 @@ static void adjust_capacity(keydir_t *keydir, size_t capacity)
     for (size_t i = 0; i < capacity; i++)
     {
         entries[i].key = NULL;
-        entries[i].value = NULL;
         entries[i].state = ENTRY_EMPTY;
     }
 
@@ -130,14 +128,6 @@ bool keydir_put(keydir_t *keydir, const uint8_t *key, size_t key_length, const k
             perror("malloc failure (perror)");
             exit(1);
         }
-
-        assert(entry->value == NULL);
-        entry->value = malloc(sizeof(keydir_value_t));
-        if (entry->value == NULL)
-        {
-            perror("malloc failure (perror)");
-            exit(1);
-        }
         break;
     case ENTRY_OCCUPIED:
         break;
@@ -149,14 +139,14 @@ bool keydir_put(keydir_t *keydir, const uint8_t *key, size_t key_length, const k
         entry->key_length = key_length;
     }
 
-    memcpy(entry->value, keydir_value, sizeof(keydir_value_t));
+    entry->value = *keydir_value;
 
     entry->state = ENTRY_OCCUPIED;
 
     return true;
 }
 
-const keydir_value_t *keydir_get(keydir_t *keydir, const uint8_t *key, size_t key_length)
+const keydir_value_t *keydir_get(const keydir_t *keydir, const uint8_t *key, size_t key_length)
 {
     if (keydir->count == 0 || key_length < 1)
     {
@@ -169,7 +159,7 @@ const keydir_value_t *keydir_get(keydir_t *keydir, const uint8_t *key, size_t ke
         return NULL;
     }
 
-    return entry->value;
+    return &entry->value;
 }
 
 bool keydir_delete(keydir_t *keydir, const uint8_t *key, size_t key_length)
@@ -184,8 +174,6 @@ bool keydir_delete(keydir_t *keydir, const uint8_t *key, size_t key_length)
     {
         free(entry->key);
         entry->key = NULL;
-        free(entry->value);
-        entry->value = NULL;
         entry->state = ENTRY_TOMBSTONE;
         return true;
     }
