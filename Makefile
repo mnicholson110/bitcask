@@ -1,5 +1,5 @@
 CC ?= cc
-CFLAGS ?= -std=c11 -Wall -Wextra -Iinclude
+CFLAGS ?= -Wall -Wextra -Iinclude
 LDFLAGS ?=
 LDLIBS ?= 
 
@@ -25,7 +25,7 @@ $(TEST_BIN): $(SRC) $(TEST_SRC) | $(BIN_DIR)
 bench: $(BENCH_BIN)
 
 $(BENCH_BIN): $(SRC) $(BENCH_SRC) | $(BIN_DIR)
-	$(CC) $(CFLAGS) -O2 $(SRC) $(BENCH_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
+	$(CC) $(CFLAGS) $(SRC) $(BENCH_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
 bench_O3: $(BENCH_O3_BIN)
 
