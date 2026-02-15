@@ -101,13 +101,13 @@ static bool parse_datafile_name(const struct dirent *dp, uint32_t *out)
 
     size_t num_len = len - suffix_len;
     char *end = NULL;
-    uint32_t parsed = (uint32_t)strtoul(name, &end, 10);
-    if (end != name + num_len)
+    unsigned long parsed = strtoul(name, &end, 10);
+    if (end != name + num_len || parsed > UINT32_MAX)
     {
         return false;
     }
 
-    *out = parsed;
+    *out = (uint32_t)parsed;
     return true;
 }
 
@@ -379,9 +379,9 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         {
 
             datafile_init(&bitcask->inactive_files[i]);
-            int n = snprintf(file_path, path_len, "%s%s%02" PRIu32 ".data", dir_path,
-                             has_slash ? "" : "/", ids[i]);
-            if (n < 0 || (size_t)n >= path_len)
+            int path_n = snprintf(file_path, path_len, "%s%s%02" PRIu32 ".data", dir_path,
+                                  has_slash ? "" : "/", ids[i]);
+            if (path_n < 0 || (size_t)path_n >= path_len)
             {
                 free(file_path);
                 free(ids);
