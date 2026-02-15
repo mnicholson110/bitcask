@@ -1,13 +1,9 @@
 #ifndef bitcask_keydir_h
 #define bitcask_keydir_h
 
-#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #define TABLE_MAX_LOAD_NUM 3
 #define TABLE_MAX_LOAD_DEN 4

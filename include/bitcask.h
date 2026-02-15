@@ -3,13 +3,9 @@
 
 #include "datafile.h"
 #include "keydir.h"
-#include <ctype.h>
-#include <dirent.h>
-#include <errno.h>
-#include <inttypes.h>
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <time.h>
 
 // eventually a bitmask of various opts?
 typedef enum bitcask_opts

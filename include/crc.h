@@ -5,8 +5,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <unistd.h>
 
 static const uint32_t crc32_table[256] = {
     0x00000000u, 0x77073096u, 0xEE0E612Cu, 0x990951BAu,

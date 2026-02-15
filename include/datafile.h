@@ -1,17 +1,11 @@
 #ifndef bitcask_datafile_h
 #define bitcask_datafile_h
 
-#include "crc.h"
-#include "entry.h"
 #include "keydir.h"
-#include <fcntl.h>
-#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <sys/stat.h>
-#include <sys/uio.h>
-#include <unistd.h>
+#include <sys/types.h>
 
 #define MAX_FILE_SIZE 268435456 // 256MB
 #define MAX_KEY_SIZE ((size_t)(1024 * 1024))       // 1 MiB

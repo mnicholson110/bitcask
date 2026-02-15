@@ -1,4 +1,11 @@
 #include "../include/datafile.h"
+#include "io_util.h"
+#include "../include/crc.h"
+#include "../include/entry.h"
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/uio.h>
+#include <unistd.h>
 
 #define BITCASK_SSIZE_MAX ((size_t)(~(size_t)0 >> 1))
 
@@ -128,8 +135,7 @@ bool datafile_read_value_at(const datafile_t *datafile,
         return false;
     }
 
-    ssize_t read_bytes = pread(datafile->fd, out, value_size, value_pos);
-    if (read_bytes < 0 || (size_t)read_bytes != value_size)
+    if (!pread_exact(datafile->fd, out, value_size, value_pos))
     {
         return false;
     }

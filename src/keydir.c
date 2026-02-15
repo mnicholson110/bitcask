@@ -1,4 +1,7 @@
 #include "../include/keydir.h"
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 void keydir_init(keydir_t *keydir)
 {
@@ -63,13 +66,12 @@ static keydir_entry_t *find_entry(keydir_entry_t *entries, size_t capacity, cons
     }
 }
 
-static void adjust_capacity(keydir_t *keydir, size_t capacity)
+static bool adjust_capacity(keydir_t *keydir, size_t capacity)
 {
     keydir_entry_t *entries = malloc(sizeof(keydir_entry_t) * capacity);
     if (entries == NULL)
     {
-        perror("malloc failure (perror)");
-        exit(1);
+        return false;
     }
     for (size_t i = 0; i < capacity; i++)
     {
@@ -98,6 +100,7 @@ static void adjust_capacity(keydir_t *keydir, size_t capacity)
     free(keydir->entries);
     keydir->entries = entries;
     keydir->capacity = capacity;
+    return true;
 }
 
 bool keydir_put(keydir_t *keydir, const uint8_t *key, size_t key_length, const keydir_value_t *keydir_value)
@@ -110,7 +113,10 @@ bool keydir_put(keydir_t *keydir, const uint8_t *key, size_t key_length, const k
     if (keydir->count + 1 > (keydir->capacity * TABLE_MAX_LOAD_NUM) / TABLE_MAX_LOAD_DEN)
     {
         size_t capacity = keydir->capacity < 8 ? 8 : keydir->capacity * 2;
-        adjust_capacity(keydir, capacity);
+        if (!adjust_capacity(keydir, capacity))
+        {
+            return false;
+        };
     }
 
     keydir_entry_t *entry = find_entry(keydir->entries, keydir->capacity, key, key_length);
@@ -125,8 +131,7 @@ bool keydir_put(keydir_t *keydir, const uint8_t *key, size_t key_length, const k
         entry->key = malloc(sizeof(uint8_t) * key_length);
         if (entry->key == NULL)
         {
-            perror("malloc failure (perror)");
-            exit(1);
+            return false;
         }
         break;
     case ENTRY_OCCUPIED:

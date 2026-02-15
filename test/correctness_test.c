@@ -1,4 +1,5 @@
 #include "../include/bitcask.h"
+#include "../include/entry.h"
 
 #include <stdbool.h>
 #include <stdint.h>

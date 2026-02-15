@@ -1,4 +1,16 @@
 #include "../include/bitcask.h"
+#include "../include/crc.h"
+#include "../include/entry.h"
+#include "io_util.h"
+#include <dirent.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
 
 static int cmp_u32(const void *a, const void *b)
 {
@@ -21,7 +33,10 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
 
         entry_header_t header;
         uint8_t hdr_buf[ENTRY_HEADER_SIZE];
-        pread(datafile->fd, hdr_buf, ENTRY_HEADER_SIZE, offset);
+        if (!pread_exact(datafile->fd, hdr_buf, ENTRY_HEADER_SIZE, offset))
+        {
+            return false;
+        }
 
         entry_header_decode(&header, hdr_buf);
 
@@ -51,7 +66,11 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
         {
             return false;
         }
-        pread(datafile->fd, key, header.key_size, offset);
+        if (!pread_exact(datafile->fd, key, header.key_size, offset))
+        {
+            free(key);
+            return false;
+        }
 
         offset += header.key_size;
 

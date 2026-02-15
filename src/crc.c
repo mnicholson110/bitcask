@@ -1,4 +1,5 @@
 #include "../include/crc.h"
+#include "io_util.h"
 
 bool crc32_validate_buf(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZE],
                         const uint8_t *key, uint32_t key_size,
@@ -29,15 +30,14 @@ bool crc32_validate(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZ
     while (remaining > 0)
     {
         size_t want = remaining < sizeof(scratch) ? remaining : sizeof(scratch);
-        ssize_t n = pread(fd, scratch, want, pos);
-        if (n <= 0)
+        if (!pread_exact(fd, scratch, want, pos))
         {
             return false;
         }
-        crc = crc32_update(crc, scratch, (size_t)n);
+        crc = crc32_update(crc, scratch, want);
 
-        remaining -= (size_t)n;
-        pos += (off_t)n;
+        remaining -= want;
+        pos += (off_t)want;
     }
     crc = crc32_final(crc);
 
