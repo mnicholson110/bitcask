@@ -74,20 +74,14 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
 
         offset += header.key_size;
 
-        if (!crc32_validate(header.crc, hdr_buf, key, header.key_size, datafile->fd, offset, header.value_size))
-        {
-            free(key);
-            return false;
-        }
-
         if (header.value_size != 0)
         {
 
-            keydir_value_t keydir_value = {.crc = header.crc,
-                                           .file_id = datafile->file_id,
-                                           .value_pos = offset,
-                                           .value_size = header.value_size,
-                                           .timestamp = header.timestamp};
+            keydir_value_t keydir_value = {
+                .file_id = datafile->file_id,
+                .value_pos = offset,
+                .value_size = header.value_size,
+                .timestamp = header.timestamp};
 
             if (!keydir_put(keydir, key, header.key_size, &keydir_value))
             {
@@ -130,7 +124,7 @@ static bool parse_datafile_name(const struct dirent *dp, uint32_t *out)
     return true;
 }
 
-static bool check_path(const char *dir_path, bitcask_opts_t opts)
+static bool check_path(const char *dir_path, bitcask_mode_t mode)
 {
     struct stat sb;
     if (stat(dir_path, &sb) == 0)
@@ -143,7 +137,7 @@ static bool check_path(const char *dir_path, bitcask_opts_t opts)
         return false;
     }
 
-    if (opts == BITCASK_READ_ONLY)
+    if (mode == BITCASK_READ_ONLY)
     {
         return false;
     }
@@ -194,7 +188,7 @@ static bool rotate_active_file(bitcask_handle_t *bitcask)
         return false;
     }
 
-    if (bitcask->file_count + 1 >= bitcask->inactive_capacity)
+    if (bitcask->file_count >= bitcask->inactive_capacity)
     {
         void *tmp = realloc(bitcask->inactive_files, sizeof(datafile_t) * bitcask->inactive_capacity * 2);
         if (tmp == NULL)
@@ -225,7 +219,7 @@ static bool rotate_active_file(bitcask_handle_t *bitcask)
         return false;
     }
 
-    if (!datafile_open(&bitcask->inactive_files[bitcask->file_count - 1], file_path, old_active_id, DATAFILE_READ))
+    if (!datafile_open(&bitcask->inactive_files[bitcask->file_count], file_path, old_active_id, DATAFILE_READ))
     {
         free(file_path);
         return false;
@@ -252,7 +246,7 @@ static bool rotate_active_file(bitcask_handle_t *bitcask)
 }
 
 bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
-                  bitcask_opts_t opts)
+                  bitcask_mode_t mode)
 {
     bitcask->inactive_files = NULL;
     bitcask->inactive_capacity = 0;
@@ -260,9 +254,10 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     bitcask->keydir.count = 0;
     bitcask->keydir.capacity = 0;
     bitcask->keydir.entries = NULL;
+    bitcask->mode = mode;
     datafile_init(&bitcask->active_file);
 
-    if (!check_path(dir_path, opts))
+    if (!check_path(dir_path, mode))
     {
         return false;
     }
@@ -281,7 +276,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         closedir(dirp);
         return false;
     };
-    if (count == 0 && opts == BITCASK_READ_ONLY)
+    if (count == 0 && mode == BITCASK_READ_ONLY)
     {
         free(ids);
         closedir(dirp);
@@ -313,11 +308,52 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         return false;
     }
 
-    if (count == 0)
+    // set existing files as inactive
+    for (size_t i = 0; i < count; i++)
+    {
+
+        datafile_init(&bitcask->inactive_files[i]);
+        int path_n = snprintf(file_path, path_len, "%s%s%02" PRIu32 ".data", dir_path,
+                              has_slash ? "" : "/", ids[i]);
+        if (path_n < 0 || (size_t)path_n >= path_len)
+        {
+            free(file_path);
+            free(ids);
+            closedir(dirp);
+            bitcask_close(bitcask);
+            return false;
+        }
+        if (!datafile_open(&bitcask->inactive_files[i], file_path, ids[i], DATAFILE_READ))
+        {
+            free(file_path);
+            free(ids);
+            closedir(dirp);
+            bitcask_close(bitcask);
+            return false;
+        }
+        bitcask->file_count++;
+    }
+    // rebuild keydir
+    keydir_init(&bitcask->keydir);
+    // scan files from inactive[0] thru to active file and rebuild keydir
+    for (size_t i = 0; i < count; i++)
+    {
+        if (!populate_keydir(&bitcask->inactive_files[i], &bitcask->keydir))
+        {
+            free(file_path);
+            free(ids);
+            closedir(dirp);
+            bitcask_close(bitcask);
+            return false;
+        }
+    }
+
+    // if RW, open a new file for writing
+    if (mode == BITCASK_READ_WRITE)
     {
         // open datafile
         int n = snprintf(file_path, path_len, "%s%s%02" PRIu32 ".data", dir_path,
-                         has_slash ? "" : "/", 1);
+                         has_slash ? "" : "/", (uint32_t)bitcask->file_count + 1);
         if (n < 0 || (size_t)n >= path_len)
         {
             free(file_path);
@@ -326,113 +362,8 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
             bitcask_close(bitcask);
             return false;
         }
-        if (opts == BITCASK_READ_ONLY)
-        {
-            if (!datafile_open(&bitcask->active_file, file_path, 1, DATAFILE_READ))
-            {
-                free(file_path);
-                free(ids);
-                closedir(dirp);
-                bitcask_close(bitcask);
-                return false;
-            }
-            bitcask->file_count = 1;
-        }
-        else
-        {
-            if (!datafile_open(&bitcask->active_file, file_path, 1, DATAFILE_READ_WRITE))
-            {
-                free(file_path);
-                free(ids);
-                closedir(dirp);
-                bitcask_close(bitcask);
-                return false;
-            }
-            bitcask->file_count = 1;
-        }
-        // initialize empty keydir
-        keydir_init(&bitcask->keydir);
-    }
-    else
-    {
-        // find max file_id, set as active
-        uint32_t active_id = ids[count - 1];
 
-        int n = snprintf(file_path, path_len, "%s%s%02" PRIu32 ".data", dir_path,
-                         has_slash ? "" : "/", active_id);
-        if (n < 0 || (size_t)n >= path_len)
-        {
-            free(file_path);
-            free(ids);
-            closedir(dirp);
-            bitcask_close(bitcask);
-            return false;
-        }
-        if (opts == BITCASK_READ_ONLY)
-        {
-            if (!datafile_open(&bitcask->active_file, file_path, active_id, DATAFILE_READ))
-            {
-                free(file_path);
-                free(ids);
-                closedir(dirp);
-                bitcask_close(bitcask);
-                return false;
-            }
-            bitcask->file_count++;
-        }
-        else
-        {
-            if (!datafile_open(&bitcask->active_file, file_path, active_id, DATAFILE_READ_WRITE))
-            {
-                free(file_path);
-                free(ids);
-                closedir(dirp);
-                bitcask_close(bitcask);
-                return false;
-            }
-            bitcask->file_count++;
-        }
-
-        // set rest as inactive
-        for (size_t i = 0; i < count - 1; i++)
-        {
-
-            datafile_init(&bitcask->inactive_files[i]);
-            int path_n = snprintf(file_path, path_len, "%s%s%02" PRIu32 ".data", dir_path,
-                                  has_slash ? "" : "/", ids[i]);
-            if (path_n < 0 || (size_t)path_n >= path_len)
-            {
-                free(file_path);
-                free(ids);
-                closedir(dirp);
-                bitcask_close(bitcask);
-                return false;
-            }
-            if (!datafile_open(&bitcask->inactive_files[i], file_path, ids[i], DATAFILE_READ))
-            {
-                free(file_path);
-                free(ids);
-                closedir(dirp);
-                bitcask_close(bitcask);
-                return false;
-            }
-            bitcask->file_count++;
-        }
-        // rebuild keydir
-        keydir_init(&bitcask->keydir);
-        // scan files from inactive[0] thru to active file and rebuild keydir
-        for (size_t i = 0; i < count - 1; i++)
-        {
-            if (!populate_keydir(&bitcask->inactive_files[i], &bitcask->keydir))
-            {
-                free(file_path);
-                free(ids);
-                closedir(dirp);
-                bitcask_close(bitcask);
-                return false;
-            }
-        }
-        if (!populate_keydir(&bitcask->active_file, &bitcask->keydir))
+        if (!datafile_open(&bitcask->active_file, file_path, bitcask->file_count + 1, DATAFILE_READ_WRITE))
         {
             free(file_path);
             free(ids);
@@ -470,7 +401,7 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
     }
     else
     {
-        for (size_t i = 0; i < bitcask->file_count - 1; i++)
+        for (size_t i = 0; i < bitcask->file_count; i++)
         {
             if (bitcask->inactive_files[i].file_id == entry->file_id)
             {
@@ -485,8 +416,14 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
         return false;
     }
 
+    entry_header_t header;
     uint8_t hdr_buf[ENTRY_HEADER_SIZE];
-    entry_header_encode(hdr_buf, entry->crc, entry->timestamp, key_size, entry->value_size);
+    if (!pread_exact(target->fd, hdr_buf, ENTRY_HEADER_SIZE, entry->value_pos - key_size - ENTRY_HEADER_SIZE))
+    {
+        return false;
+    }
+
+    entry_header_decode(&header, hdr_buf);
 
     *out = malloc(entry->value_size);
     if (*out == NULL)
@@ -503,7 +440,7 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
         return false;
     }
 
-    if (!crc32_validate_buf(entry->crc, hdr_buf, key, key_size, *out, entry->value_size))
+    if (!crc32_validate_buf(header.crc, hdr_buf, key, key_size, *out, entry->value_size))
     {
         free(*out);
         *out = NULL;
@@ -588,11 +525,14 @@ void bitcask_close(bitcask_handle_t *bitcask)
 
     if (bitcask->file_count != 0)
     {
-        for (size_t i = 0; i < bitcask->file_count - 1; i++)
+        for (size_t i = 0; i < bitcask->file_count; i++)
         {
             datafile_close(&bitcask->inactive_files[i]);
         }
-        datafile_close(&bitcask->active_file);
+        if (bitcask->mode == BITCASK_READ_WRITE)
+        {
+            datafile_close(&bitcask->active_file);
+        }
     }
     if (bitcask->inactive_files != NULL)
     {

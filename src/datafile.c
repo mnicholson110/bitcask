@@ -116,7 +116,6 @@ bool datafile_append(datafile_t *datafile,
     off_t entry_pos = datafile->write_offset;
     datafile->write_offset += total;
 
-    out->crc = crc;
     out->timestamp = timestamp;
     out->file_id = datafile->file_id;
     out->value_size = value_size;

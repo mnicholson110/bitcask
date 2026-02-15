@@ -1,5 +1,6 @@
 #include "../include/bitcask.h"
 
+#include <dirent.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,6 +13,7 @@ typedef struct bench_config
 {
     const char *seq_dir;
     const char *mixed_dir;
+    const char *rotate_dir;
     size_t writes;
     size_t reads;
     size_t mixed_ops;
@@ -19,6 +21,7 @@ typedef struct bench_config
     size_t value_size;
     uint64_t seed;
     bool keep_data;
+    bool quick_rotate;
 } bench_config_t;
 
 static double elapsed_seconds(const struct timespec *start, const struct timespec *end)
@@ -115,7 +118,7 @@ static bool parse_u64_arg(const char *arg, uint64_t *out)
 
 static void print_usage(const char *argv0)
 {
-    printf("usage: %s [--quick] [--keep-data] [--writes N] [--reads N] [--mixed N] [--keyspace N] [--value-size N] [--seed N]\n", argv0);
+    printf("usage: %s [--quick] [--quick-rotate] [--keep-data] [--writes N] [--reads N] [--mixed N] [--keyspace N] [--value-size N] [--seed N]\n", argv0);
 }
 
 static bool parse_args(int argc, char **argv, bench_config_t *cfg)
@@ -128,6 +131,11 @@ static bool parse_args(int argc, char **argv, bench_config_t *cfg)
             cfg->reads = 300000;
             cfg->mixed_ops = 600000;
             cfg->keyspace = 100000;
+            continue;
+        }
+        if (strcmp(argv[i], "--quick-rotate") == 0)
+        {
+            cfg->quick_rotate = true;
             continue;
         }
         if (strcmp(argv[i], "--keep-data") == 0)
@@ -412,11 +420,222 @@ static bool run_mixed_workload(const bench_config_t *cfg)
     return true;
 }
 
+static bool has_data_suffix(const char *name)
+{
+    size_t len = strlen(name);
+    const char *suffix = ".data";
+    size_t suffix_len = 5;
+    if (len < suffix_len)
+    {
+        return false;
+    }
+    return strcmp(name + (len - suffix_len), suffix) == 0;
+}
+
+static size_t count_datafiles(const char *dir)
+{
+    DIR *dp = opendir(dir);
+    if (dp == NULL)
+    {
+        return 0;
+    }
+
+    size_t count = 0;
+    struct dirent *entry;
+    while ((entry = readdir(dp)) != NULL)
+    {
+        if (has_data_suffix(entry->d_name))
+        {
+            count++;
+        }
+    }
+    closedir(dp);
+    return count;
+}
+
+static bool run_rotation_mixed_quick(const bench_config_t *cfg)
+{
+    if (!rm_rf(cfg->rotate_dir))
+    {
+        return false;
+    }
+
+    const size_t ops = 30000;
+    const size_t keyspace = 4096;
+    const size_t value_size = 65536;
+
+    bitcask_handle_t db;
+    if (!bitcask_open(&db, cfg->rotate_dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+
+    uint8_t *value = malloc(value_size);
+    uint8_t *exists = calloc(keyspace, sizeof(uint8_t));
+    uint32_t *version = calloc(keyspace, sizeof(uint32_t));
+    if (value == NULL || exists == NULL || version == NULL)
+    {
+        free(value);
+        free(exists);
+        free(version);
+        bitcask_close(&db);
+        return false;
+    }
+
+    uint64_t rng = cfg->seed ^ 0xfeedface12345678ULL;
+    size_t writes = 0;
+    size_t reads = 0;
+    size_t deletes = 0;
+
+    struct timespec t0;
+    struct timespec t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    for (size_t i = 0; i < ops; i++)
+    {
+        uint64_t k = next_u64(&rng) % keyspace;
+        uint8_t key[8];
+        encode_key_u64(key, k);
+
+        uint64_t r = next_u64(&rng) % 100;
+        if (r < 65)
+        {
+            version[k]++;
+            fill_value(value, value_size, k, version[k]);
+            if (!bitcask_put(&db, key, sizeof(key), value, value_size))
+            {
+                free(value);
+                free(exists);
+                free(version);
+                bitcask_close(&db);
+                return false;
+            }
+            exists[k] = 1;
+            writes++;
+        }
+        else if (r < 95)
+        {
+            uint8_t *out = NULL;
+            size_t out_size = 0;
+            bool ok = bitcask_get(&db, key, sizeof(key), &out, &out_size);
+            if (exists[k])
+            {
+                if (!ok || out_size != value_size || !verify_value_edges(out, out_size, k, version[k]))
+                {
+                    free(out);
+                    free(value);
+                    free(exists);
+                    free(version);
+                    bitcask_close(&db);
+                    return false;
+                }
+            }
+            else if (ok)
+            {
+                free(out);
+                free(value);
+                free(exists);
+                free(version);
+                bitcask_close(&db);
+                return false;
+            }
+            free(out);
+            reads++;
+        }
+        else
+        {
+            if (!bitcask_delete(&db, key, sizeof(key)))
+            {
+                free(value);
+                free(exists);
+                free(version);
+                bitcask_close(&db);
+                return false;
+            }
+            exists[k] = 0;
+            deletes++;
+        }
+    }
+
+    if (!bitcask_sync(&db))
+    {
+        free(value);
+        free(exists);
+        free(version);
+        bitcask_close(&db);
+        return false;
+    }
+    bitcask_close(&db);
+
+    size_t files = count_datafiles(cfg->rotate_dir);
+    if (files < 3)
+    {
+        free(value);
+        free(exists);
+        free(version);
+        return false;
+    }
+
+    if (!bitcask_open(&db, cfg->rotate_dir, BITCASK_READ_ONLY))
+    {
+        free(value);
+        free(exists);
+        free(version);
+        return false;
+    }
+
+    for (size_t i = 0; i < 10000; i++)
+    {
+        uint64_t k = next_u64(&rng) % keyspace;
+        uint8_t key[8];
+        encode_key_u64(key, k);
+
+        uint8_t *out = NULL;
+        size_t out_size = 0;
+        bool ok = bitcask_get(&db, key, sizeof(key), &out, &out_size);
+        if (exists[k])
+        {
+            if (!ok || out_size != value_size || !verify_value_edges(out, out_size, k, version[k]))
+            {
+                free(out);
+                free(value);
+                free(exists);
+                free(version);
+                bitcask_close(&db);
+                return false;
+            }
+        }
+        else if (ok)
+        {
+            free(out);
+            free(value);
+            free(exists);
+            free(version);
+            bitcask_close(&db);
+            return false;
+        }
+        free(out);
+    }
+    bitcask_close(&db);
+
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double sec = elapsed_seconds(&t0, &t1);
+    double throughput_mib = ((double)writes * (double)value_size) / (1024.0 * 1024.0);
+    printf("[rotate-mixed] ops=%zu (writes=%zu reads=%zu deletes=%zu) files=%zu time=%.3fs ops/s=%.0f write-throughput=%.2f MiB/s\n",
+           ops, writes, reads, deletes, files, sec, (double)ops / sec, throughput_mib / sec);
+
+    free(value);
+    free(exists);
+    free(version);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     bench_config_t cfg = {
         .seq_dir = "test/bench-seq",
         .mixed_dir = "test/bench-mixed",
+        .rotate_dir = "test/bench-rotate",
         .writes = 3000000,
         .reads = 3000000,
         .mixed_ops = 6000000,
@@ -424,6 +643,7 @@ int main(int argc, char **argv)
         .value_size = 512,
         .seed = 0x1234c0deULL,
         .keep_data = false,
+        .quick_rotate = false,
     };
 
     if (!parse_args(argc, argv, &cfg))
@@ -449,10 +669,18 @@ int main(int argc, char **argv)
     {
         return 1;
     }
+    if (cfg.quick_rotate && !run_rotation_mixed_quick(&cfg))
+    {
+        return 1;
+    }
 
     if (!cfg.keep_data)
     {
         if (!rm_rf(cfg.seq_dir) || !rm_rf(cfg.mixed_dir))
+        {
+            return 1;
+        }
+        if (cfg.quick_rotate && !rm_rf(cfg.rotate_dir))
         {
             return 1;
         }

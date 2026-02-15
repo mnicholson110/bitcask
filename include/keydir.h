@@ -17,7 +17,6 @@ typedef enum entry_state
 
 typedef struct keydir_value
 {
-    uint32_t crc;
     uint32_t file_id;
     uint32_t value_size;
     uint32_t value_pos;

@@ -38,6 +38,7 @@ static bool cleanup_test_dirs(void)
         "test/test-empty-delete",
         "test/test-last-write",
         "test/test-rotate",
+        "test/test-first-rotate",
         "test/test-max-boundary",
         "test/test-get-failure-out",
         "test/test-corrupt-sizes",
@@ -459,6 +460,7 @@ static bool test_file_rotation_and_reopen(void)
         return false;
     }
     free(out);
+    out = NULL;
 
     int last_n = snprintf(key_buf, key_buf_size, "k%06zu", writes - 1);
     if (last_n < 0 || (size_t)last_n >= key_buf_size)
@@ -476,6 +478,7 @@ static bool test_file_rotation_and_reopen(void)
         return false;
     }
     free(out);
+    out = NULL;
 
     bitcask_close(&db);
 
@@ -501,6 +504,7 @@ static bool test_file_rotation_and_reopen(void)
         return false;
     }
     free(out);
+    out = NULL;
 
     last_n = snprintf(key_buf, key_buf_size, "k%06zu", writes - 1);
     if (last_n < 0 || (size_t)last_n >= key_buf_size)
@@ -511,6 +515,95 @@ static bool test_file_rotation_and_reopen(void)
     }
     if (!bitcask_get(&db, (const uint8_t *)key_buf, (size_t)last_n, &out, &out_size) ||
         out_size != value_size || !check_tagged_value(out, out_size, (uint8_t)(writes - 1)))
+    {
+        free(out);
+        free(value);
+        bitcask_close(&db);
+        return false;
+    }
+
+    free(out);
+    out = NULL;
+    free(value);
+    bitcask_close(&db);
+    return true;
+}
+
+static bool test_first_rotation_edge(void)
+{
+    const char *dir = "test/test-first-rotate";
+    const char *second_file = "test/test-first-rotate/02.data";
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+
+    bitcask_handle_t db;
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+
+    const size_t value_size = MAX_VALUE_SIZE;
+    uint8_t *value = malloc(value_size);
+    if (value == NULL)
+    {
+        bitcask_close(&db);
+        return false;
+    }
+    memset(value, 'r', value_size);
+
+    const size_t entry_size = ENTRY_HEADER_SIZE + 2 + value_size; // 2-byte key
+    const size_t writes_before_rotate = ((MAX_FILE_SIZE - entry_size) / entry_size) + 1;
+
+    for (size_t i = 0; i < writes_before_rotate; i++)
+    {
+        uint8_t key[2] = {(uint8_t)(i & 0xFFu), (uint8_t)((i >> 8) & 0xFFu)};
+        if (!bitcask_put(&db, key, sizeof(key), value, value_size))
+        {
+            free(value);
+            bitcask_close(&db);
+            return false;
+        }
+    }
+
+    if (path_exists(second_file))
+    {
+        free(value);
+        bitcask_close(&db);
+        return false;
+    }
+
+    uint8_t rotate_key[2] = {0xAAu, 0x55u};
+    if (!bitcask_put(&db, rotate_key, sizeof(rotate_key), value, value_size))
+    {
+        free(value);
+        bitcask_close(&db);
+        return false;
+    }
+    if (!path_exists(second_file))
+    {
+        free(value);
+        bitcask_close(&db);
+        return false;
+    }
+
+    uint8_t first_key[2] = {0x00u, 0x00u};
+    uint8_t *out = NULL;
+    size_t out_size = 0;
+    if (!bitcask_get(&db, first_key, sizeof(first_key), &out, &out_size) ||
+        out_size != value_size || out[0] != 'r' || out[out_size - 1] != 'r')
+    {
+        free(out);
+        free(value);
+        bitcask_close(&db);
+        return false;
+    }
+    free(out);
+    out = NULL;
+
+    if (!bitcask_get(&db, rotate_key, sizeof(rotate_key), &out, &out_size) ||
+        out_size != value_size || out[0] != 'r' || out[out_size - 1] != 'r')
     {
         free(out);
         free(value);
@@ -967,7 +1060,7 @@ static bool test_crc_rejected_on_get(void)
     return !ok;
 }
 
-static bool test_crc_rejected_on_reopen(void)
+static bool test_crc_not_rejected_on_reopen(void)
 {
     const char *dir = "test/test-crc-open";
     const char *datafile = "test/test-crc-open/01.data";
@@ -993,12 +1086,17 @@ static bool test_crc_rejected_on_reopen(void)
         return false;
     }
 
-    if (bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
     {
-        bitcask_close(&db);
         return false;
     }
-    return true;
+
+    uint8_t *out = NULL;
+    size_t out_size = 0;
+    bool ok = bitcask_get(&db, (const uint8_t *)"k", 1, &out, &out_size);
+    free(out);
+    bitcask_close(&db);
+    return !ok;
 }
 
 int main(void)
@@ -1015,6 +1113,7 @@ int main(void)
         {.name = "empty_value_is_delete_tombstone", .fn = test_empty_value_is_delete_tombstone},
         {.name = "last_write_wins_same_key", .fn = test_last_write_wins_same_key},
         {.name = "file_rotation_and_reopen", .fn = test_file_rotation_and_reopen},
+        {.name = "first_rotation_edge", .fn = test_first_rotation_edge},
         {.name = "boundary_sizes_exact_max", .fn = test_boundary_sizes_exact_max},
         {.name = "get_failure_out_params", .fn = test_get_failure_out_params},
         {.name = "corrupt_header_sizes_rejected_on_open", .fn = test_corrupt_header_sizes_rejected_on_open},
@@ -1023,7 +1122,7 @@ int main(void)
         {.name = "reopen_persistence", .fn = test_reopen_persistence},
         {.name = "read_only_semantics", .fn = test_read_only_semantics},
         {.name = "crc_rejected_on_get", .fn = test_crc_rejected_on_get},
-        {.name = "crc_rejected_on_reopen", .fn = test_crc_rejected_on_reopen},
+        {.name = "crc_not_rejected_on_reopen", .fn = test_crc_not_rejected_on_reopen},
     };
 
     size_t passed = 0;

@@ -8,11 +8,11 @@
 #include <stdint.h>
 
 // eventually a bitmask of various opts?
-typedef enum bitcask_opts
+typedef enum bitcask_mode
 {
     BITCASK_READ_ONLY,
     BITCASK_READ_WRITE
-} bitcask_opts_t;
+} bitcask_mode_t;
 
 typedef struct bitcask_handle
 {
@@ -22,10 +22,11 @@ typedef struct bitcask_handle
     size_t file_count;
     size_t inactive_capacity;
     char *dir_path;
+    bitcask_mode_t mode;
 } bitcask_handle_t;
 
 bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
-                  bitcask_opts_t opts);
+                  bitcask_mode_t mode);
 
 bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
                  size_t key_size, uint8_t **out, size_t *out_size);
