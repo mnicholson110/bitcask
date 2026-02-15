@@ -1,7 +1,7 @@
 CC ?= cc
 CFLAGS ?= -std=c11 -Wall -Wextra -Iinclude
 LDFLAGS ?=
-LDLIBS ?= -pthread
+LDLIBS ?= 
 
 SRC := $(wildcard src/*.c)
 TEST_SRC := test/correctness_test.c
