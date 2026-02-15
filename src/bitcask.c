@@ -1,7 +1,7 @@
 #include "../include/bitcask.h"
 #include "../include/crc.h"
 #include "../include/entry.h"
-#include "io_util.h"
+#include "../include/io_util.h"
 #include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
