@@ -12,6 +12,16 @@
 #include <sys/types.h>
 #include <time.h>
 
+static inline bool can_write(uint8_t opts)
+{
+    return (opts & BITCASK_READ_WRITE) != 0;
+}
+
+static inline bool sync_on_put(uint8_t opts)
+{
+    return (opts & BITCASK_SYNC_ON_PUT) != 0;
+}
+
 static int cmp_u32(const void *a, const void *b)
 {
     uint32_t x = *(const uint32_t *)a;
@@ -130,7 +140,7 @@ static bool parse_datafile_name(const struct dirent *dp, uint32_t *out)
     return true;
 }
 
-static bool check_path(const char *dir_path, bitcask_mode_t mode)
+static bool check_path(const char *dir_path, uint8_t opts)
 {
     struct stat sb;
     if (stat(dir_path, &sb) == 0)
@@ -143,7 +153,7 @@ static bool check_path(const char *dir_path, bitcask_mode_t mode)
         return false;
     }
 
-    if (mode == BITCASK_READ_ONLY)
+    if (!can_write(opts))
     {
         return false;
     }
@@ -252,18 +262,22 @@ static bool rotate_active_file(bitcask_handle_t *bitcask)
 }
 
 bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
-                  bitcask_mode_t mode)
+                  uint8_t opts)
 {
+    if ((opts & ~(BITCASK_READ_WRITE | BITCASK_SYNC_ON_PUT)) != 0)
+    {
+        return false;
+    }
     bitcask->inactive_files = NULL;
     bitcask->inactive_capacity = 0;
     bitcask->file_count = 0;
     bitcask->keydir.count = 0;
     bitcask->keydir.capacity = 0;
     bitcask->keydir.entries = NULL;
-    bitcask->mode = mode;
+    bitcask->opts = opts;
     datafile_init(&bitcask->active_file);
 
-    if (!check_path(dir_path, mode))
+    if (!check_path(dir_path, opts))
     {
         return false;
     }
@@ -282,7 +296,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         closedir(dirp);
         return false;
     };
-    if (count == 0 && mode == BITCASK_READ_ONLY)
+    if (count == 0 && !can_write(opts))
     {
         free(ids);
         closedir(dirp);
@@ -355,7 +369,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     }
 
     // if RW, open a new file for writing
-    if (mode == BITCASK_READ_WRITE)
+    if (can_write(opts))
     {
         // open datafile
         int n = snprintf(file_path, path_len, "%s%s%02" PRIu32 ".data", dir_path,
@@ -443,7 +457,7 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
 bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key,
                  size_t key_size, const uint8_t *value, size_t value_size)
 {
-    if (bitcask->active_file.mode == DATAFILE_READ)
+    if (!can_write(bitcask->opts))
     {
         // this is a read-only handle, put not allowed
         return false;
@@ -479,14 +493,16 @@ bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key,
     if (value_size == 0)
     {
         keydir_delete(&bitcask->keydir, key, key_size);
-        return true;
     }
-
-    if (!keydir_put(&bitcask->keydir, key, key_size, &out))
+    else if (!keydir_put(&bitcask->keydir, key, key_size, &out))
     {
         return false;
     }
 
+    if (sync_on_put(bitcask->opts))
+    {
+        return bitcask_sync(bitcask);
+    }
     return true;
 }
 
@@ -512,17 +528,15 @@ void bitcask_close(bitcask_handle_t *bitcask)
     bitcask_sync(bitcask);
     // TODO: write keydir to hintfile
 
-    if (bitcask->file_count != 0)
+    for (size_t i = 0; i < bitcask->file_count; i++)
     {
-        for (size_t i = 0; i < bitcask->file_count; i++)
-        {
-            datafile_close(&bitcask->inactive_files[i]);
-        }
-        if (bitcask->mode == BITCASK_READ_WRITE)
-        {
-            datafile_close(&bitcask->active_file);
-        }
+        datafile_close(&bitcask->inactive_files[i]);
     }
+    if (can_write(bitcask->opts))
+    {
+        datafile_close(&bitcask->active_file);
+    }
+
     if (bitcask->inactive_files != NULL)
     {
         free(bitcask->inactive_files);

@@ -812,7 +812,7 @@ static bool test_read_only_delete_rejected(void)
     }
     bitcask_close(&db);
 
-    if (!bitcask_open(&db, dir, BITCASK_READ_ONLY))
+    if (!bitcask_open(&db, dir, 0))
     {
         return false;
     }
@@ -903,7 +903,7 @@ static bool test_concurrent_readers(void)
     }
     bitcask_close(&db);
 
-    if (!bitcask_open(&db, dir, BITCASK_READ_ONLY))
+    if (!bitcask_open(&db, dir, 0))
     {
         return false;
     }
@@ -999,7 +999,7 @@ static bool test_read_only_semantics(void)
     }
     bitcask_close(&db);
 
-    if (!bitcask_open(&db, dir, BITCASK_READ_ONLY))
+    if (!bitcask_open(&db, dir, 0))
     {
         return false;
     }
@@ -1021,7 +1021,7 @@ static bool test_read_only_semantics(void)
     }
     bitcask_close(&db);
 
-    if (bitcask_open(&db, missing, BITCASK_READ_ONLY))
+    if (bitcask_open(&db, missing, 0))
     {
         bitcask_close(&db);
         return false;
