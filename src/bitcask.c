@@ -74,6 +74,12 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
 
         offset += header.key_size;
 
+        if (!crc32_validate(header.crc, hdr_buf, key, header.key_size, datafile->fd, offset, header.value_size))
+        {
+            free(key);
+            return false;
+        }
+
         if (header.value_size != 0)
         {
 
@@ -416,15 +422,6 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
         return false;
     }
 
-    entry_header_t header;
-    uint8_t hdr_buf[ENTRY_HEADER_SIZE];
-    if (!pread_exact(target->fd, hdr_buf, ENTRY_HEADER_SIZE, entry->value_pos - key_size - ENTRY_HEADER_SIZE))
-    {
-        return false;
-    }
-
-    entry_header_decode(&header, hdr_buf);
-
     *out = malloc(entry->value_size);
     if (*out == NULL)
     {
@@ -433,14 +430,6 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
     *out_size = entry->value_size;
 
     if (!datafile_read_value_at(target, entry->value_pos, entry->value_size, *out))
-    {
-        free(*out);
-        *out = NULL;
-        *out_size = 0;
-        return false;
-    }
-
-    if (!crc32_validate_buf(hdr_buf, key, key_size, *out, entry->value_size))
     {
         free(*out);
         *out = NULL;

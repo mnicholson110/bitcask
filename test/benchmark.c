@@ -243,10 +243,11 @@ static bool run_write_workload(const bench_config_t *cfg)
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double sec = elapsed_seconds(&t0, &t1);
     double ops = (double)cfg->writes / sec;
+    double ns_per_op = (sec * 1000000000.0) / (double)cfg->writes;
     double mib = ((double)cfg->writes * (double)cfg->value_size) / (1024.0 * 1024.0);
 
-    printf("[write] ops=%zu value_size=%zuB time=%.3fs ops/s=%.0f throughput=%.2f MiB/s\n",
-           cfg->writes, cfg->value_size, sec, ops, mib / sec);
+    printf("[write] ops=%zu value_size=%zuB time=%.3fs ops/s=%.0f ns/op=%.0f throughput=%.2f MiB/s\n",
+           cfg->writes, cfg->value_size, sec, ops, ns_per_op, mib / sec);
 
     free(value);
     bitcask_close(&db);
@@ -413,8 +414,10 @@ static bool run_mixed_workload(const bench_config_t *cfg)
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double sec = elapsed_seconds(&t0, &t1);
     double ops = (double)cfg->mixed_ops / sec;
-    printf("[mixed] ops=%zu (writes=%zu reads=%zu deletes=%zu) time=%.3fs ops/s=%.0f\n",
-           cfg->mixed_ops, writes, reads, deletes, sec, ops);
+    double ns_per_op = (sec * 1000000000.0) / (double)cfg->mixed_ops;
+    double mib = ((double)(writes + reads) * (double)cfg->value_size) / (1024.0 * 1024.0);
+    printf("[mixed] ops=%zu value_size=%zuB (writes=%zu reads=%zu deletes=%zu) time=%.3fs ops/s=%.0f ns/op=%.0f throughput=%.2f MiB/s\n",
+           cfg->mixed_ops, cfg->value_size, writes, reads, deletes, sec, ops, ns_per_op, mib / sec);
 
     free(value);
     free(exists);

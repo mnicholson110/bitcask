@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 typedef bool (*test_fn_t)(void);
 
@@ -126,6 +127,11 @@ static bool write_u32_le_at(const char *path, long offset, uint32_t value)
         return false;
     }
     return true;
+}
+
+static bool truncate_file_to(const char *path, off_t size)
+{
+    return truncate(path, size) == 0;
 }
 
 static bool expect_value_eq(bitcask_handle_t *db,
@@ -700,7 +706,8 @@ static bool test_get_failure_out_params(void)
         return false;
     }
 
-    if (!write_byte_at(datafile, value_offset_for_key_size(1), (uint8_t)'X'))
+    // Force a short read to exercise the out-param behavior on true I/O failure.
+    if (!truncate_file_to(datafile, value_offset_for_key_size(1) + 2))
     {
         bitcask_close(&db);
         return false;
@@ -1026,7 +1033,7 @@ static bool test_read_only_semantics(void)
     return true;
 }
 
-static bool test_crc_rejected_on_get(void)
+static bool test_crc_not_checked_on_get(void)
 {
     const char *dir = "test/test-crc-get";
     const char *datafile = "test/test-crc-get/01.data";
@@ -1055,12 +1062,13 @@ static bool test_crc_rejected_on_get(void)
     uint8_t *out = NULL;
     size_t out_size = 0;
     bool ok = bitcask_get(&db, (const uint8_t *)"k", 1, &out, &out_size);
+    bool valid = ok && out_size == 5 && memcmp(out, "Xello", 5) == 0;
     free(out);
     bitcask_close(&db);
-    return !ok;
+    return valid;
 }
 
-static bool test_crc_not_rejected_on_reopen(void)
+static bool test_crc_rejected_on_reopen(void)
 {
     const char *dir = "test/test-crc-open";
     const char *datafile = "test/test-crc-open/01.data";
@@ -1086,17 +1094,12 @@ static bool test_crc_not_rejected_on_reopen(void)
         return false;
     }
 
-    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    if (bitcask_open(&db, dir, BITCASK_READ_WRITE))
     {
+        bitcask_close(&db);
         return false;
     }
-
-    uint8_t *out = NULL;
-    size_t out_size = 0;
-    bool ok = bitcask_get(&db, (const uint8_t *)"k", 1, &out, &out_size);
-    free(out);
-    bitcask_close(&db);
-    return !ok;
+    return true;
 }
 
 int main(void)
@@ -1121,8 +1124,8 @@ int main(void)
         {.name = "concurrent_readers", .fn = test_concurrent_readers},
         {.name = "reopen_persistence", .fn = test_reopen_persistence},
         {.name = "read_only_semantics", .fn = test_read_only_semantics},
-        {.name = "crc_rejected_on_get", .fn = test_crc_rejected_on_get},
-        {.name = "crc_not_rejected_on_reopen", .fn = test_crc_not_rejected_on_reopen},
+        {.name = "crc_not_checked_on_get", .fn = test_crc_not_checked_on_get},
+        {.name = "crc_rejected_on_reopen", .fn = test_crc_rejected_on_reopen},
     };
 
     size_t passed = 0;
