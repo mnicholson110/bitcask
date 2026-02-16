@@ -19,7 +19,7 @@ typedef struct bitcask_handle
     keydir_t keydir;
     datafile_t active_file;
     datafile_t *inactive_files;
-    size_t file_count;
+    size_t inactive_count;
     size_t inactive_capacity;
     char *dir_path;
     uint8_t opts;

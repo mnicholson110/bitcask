@@ -53,6 +53,7 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
         {
             return false;
         }
+
         if (header.key_size > MAX_KEY_SIZE || header.value_size > MAX_VALUE_SIZE)
         {
             return false;
@@ -203,7 +204,7 @@ static bool rotate_active_file(bitcask_handle_t *bitcask)
         return false;
     }
 
-    if (bitcask->file_count >= bitcask->inactive_capacity)
+    if (bitcask->inactive_count >= bitcask->inactive_capacity)
     {
         void *tmp = realloc(bitcask->inactive_files, sizeof(datafile_t) * bitcask->inactive_capacity * 2);
         if (tmp == NULL)
@@ -234,7 +235,7 @@ static bool rotate_active_file(bitcask_handle_t *bitcask)
         return false;
     }
 
-    if (!datafile_open(&bitcask->inactive_files[bitcask->file_count], file_path, old_active_id, DATAFILE_READ))
+    if (!datafile_open(&bitcask->inactive_files[bitcask->inactive_count], file_path, old_active_id, DATAFILE_READ))
     {
         free(file_path);
         return false;
@@ -254,7 +255,7 @@ static bool rotate_active_file(bitcask_handle_t *bitcask)
         free(file_path);
         return false;
     }
-    bitcask->file_count++;
+    bitcask->inactive_count++;
 
     free(file_path);
     return true;
@@ -269,7 +270,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     }
     bitcask->inactive_files = NULL;
     bitcask->inactive_capacity = 0;
-    bitcask->file_count = 0;
+    bitcask->inactive_count = 0;
     bitcask->keydir.count = 0;
     bitcask->keydir.capacity = 0;
     bitcask->keydir.entries = NULL;
@@ -350,7 +351,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
             bitcask_close(bitcask);
             return false;
         }
-        bitcask->file_count++;
+        bitcask->inactive_count++;
     }
     // rebuild keydir
     keydir_init(&bitcask->keydir);
@@ -422,7 +423,7 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
     }
     else
     {
-        for (size_t i = 0; i < bitcask->file_count; i++)
+        for (size_t i = 0; i < bitcask->inactive_count; i++)
         {
             if (bitcask->inactive_files[i].file_id == entry->file_id)
             {
@@ -468,16 +469,12 @@ bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key,
         return false;
     }
 
-    const off_t max_file = (off_t)MAX_FILE_SIZE;
-    const off_t hdr = (off_t)ENTRY_HEADER_SIZE;
-    off_t key_sz = (off_t)key_size;
-    off_t val_sz = (off_t)value_size;
-
-    off_t entry_total = hdr + key_sz + val_sz;
-    if (bitcask->active_file.write_offset > max_file - entry_total)
+    if ((size_t)bitcask->active_file.write_offset > MAX_FILE_SIZE - ENTRY_HEADER_SIZE - key_size - value_size)
     {
         if (!rotate_active_file(bitcask))
+        {
             return false;
+        }
     }
 
     struct timespec ts;
@@ -529,7 +526,7 @@ void bitcask_close(bitcask_handle_t *bitcask)
     bitcask_sync(bitcask);
     // TODO: write keydir to hintfile
 
-    for (size_t i = 0; i < bitcask->file_count; i++)
+    for (size_t i = 0; i < bitcask->inactive_count; i++)
     {
         datafile_close(&bitcask->inactive_files[i]);
     }
@@ -548,6 +545,6 @@ void bitcask_close(bitcask_handle_t *bitcask)
         free(bitcask->dir_path);
         bitcask->dir_path = NULL;
     }
-    bitcask->file_count = 0;
+    bitcask->inactive_count = 0;
     keydir_free(&bitcask->keydir);
 }
