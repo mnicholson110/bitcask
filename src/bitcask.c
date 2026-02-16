@@ -371,9 +371,11 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     // if RW, open a new file for writing
     if (can_write(opts))
     {
+        uint32_t active_id = count == 0 ? 1 : ids[count - 1] + 1;
+
         // open datafile
         int n = snprintf(file_path, path_len, "%s%s%02" PRIu32 ".data", dir_path,
-                         has_slash ? "" : "/", (uint32_t)bitcask->file_count + 1);
+                         has_slash ? "" : "/", active_id);
         if (n < 0 || (size_t)n >= path_len)
         {
             free(file_path);
@@ -383,7 +385,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
             return false;
         }
 
-        if (!datafile_open(&bitcask->active_file, file_path, bitcask->file_count + 1, DATAFILE_READ_WRITE))
+        if (!datafile_open(&bitcask->active_file, file_path, active_id, DATAFILE_READ_WRITE))
         {
             free(file_path);
             free(ids);
