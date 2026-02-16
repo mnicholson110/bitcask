@@ -26,10 +26,10 @@ Open with `BITCASK_READ_ONLY` for read-only access, or `BITCASK_SYNC_ON_PUT` to 
 Each entry is appended as:
 
 ```
-| crc32 (4) | timestamp_ns (8) | key_size (4) | value_size (4) | key | value |
+| crc32 (4) | timestamp_ns (8) | key_size (4) | value_size (4) | key (key_size) | value (value_size) |
 ```
 
-All integers are little-endian. Deletes are tombstones (value_size = 0). On open, every entry is replayed to rebuild the keydir — last write wins.
+All integers are little-endian. Deletes are tombstones (value_size = 0). On open, every entry is replayed to rebuild the keydir.
 
 Data files are named `01.data`, `02.data`, etc. A new file is created when the active file exceeds 256 MB.
 
