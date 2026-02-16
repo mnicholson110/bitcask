@@ -30,7 +30,7 @@ bool datafile_open(datafile_t *datafile, const char *path,
         close(fd);
         return false;
     }
-    if (st.st_size < 0 || st.st_size > MAX_FILE_SIZE)
+    if (st.st_size < 0 || (size_t)st.st_size > MAX_FILE_SIZE)
     {
         close(fd);
         return false;
