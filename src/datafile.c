@@ -4,7 +4,6 @@
 #include "../include/io_util.h"
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/uio.h>
 #include <unistd.h>
 
 void datafile_init(datafile_t *datafile)
@@ -83,7 +82,6 @@ bool datafile_append(datafile_t *datafile,
     {
         return false;
     }
-    size_t total = ENTRY_HEADER_SIZE + key_size + value_size;
 
     // encode header values
     uint8_t header[ENTRY_HEADER_SIZE];
@@ -99,14 +97,8 @@ bool datafile_append(datafile_t *datafile,
     // add crc value to header buf
     encode_u32_le(header, crc);
 
-    const struct iovec iov[3] =
-        {
-            {.iov_base = header, .iov_len = ENTRY_HEADER_SIZE},
-            {.iov_base = (void *)key, .iov_len = key_size},
-            {.iov_base = (void *)value, .iov_len = value_size},
-        };
-    ssize_t written = pwritev(datafile->fd, iov, 3, datafile->write_offset);
-    if (written < 0 || (size_t)written != total)
+    size_t total = ENTRY_HEADER_SIZE + key_size + value_size;
+    if (!write_entry_exact(datafile->fd, header, key, key_size, value, value_size, datafile->write_offset, total))
     {
         return false;
     }
@@ -122,17 +114,17 @@ bool datafile_append(datafile_t *datafile,
     return true;
 }
 
-bool datafile_read_value_at(const datafile_t *datafile,
-                            uint32_t value_pos,
-                            uint32_t value_size,
-                            uint8_t *out)
+bool datafile_read_at(const datafile_t *datafile,
+                      off_t offset,
+                      uint32_t size,
+                      uint8_t *out)
 {
     if (datafile->fd == -1 || out == NULL)
     {
         return false;
     }
 
-    if (!pread_exact(datafile->fd, out, value_size, value_pos))
+    if (!pread_exact(datafile->fd, out, size, offset))
     {
         return false;
     }

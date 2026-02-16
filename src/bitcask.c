@@ -1,7 +1,6 @@
 #include "../include/bitcask.h"
 #include "../include/crc.h"
 #include "../include/entry.h"
-#include "../include/io_util.h"
 #include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -43,7 +42,7 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
 
         entry_header_t header;
         uint8_t hdr_buf[ENTRY_HEADER_SIZE];
-        if (!pread_exact(datafile->fd, hdr_buf, ENTRY_HEADER_SIZE, offset))
+        if (!datafile_read_at(datafile, offset, ENTRY_HEADER_SIZE, hdr_buf))
         {
             return false;
         }
@@ -76,7 +75,7 @@ static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
         {
             return false;
         }
-        if (!pread_exact(datafile->fd, key, header.key_size, offset))
+        if (!datafile_read_at(datafile, offset, header.key_size, key))
         {
             free(key);
             return false;
@@ -445,7 +444,7 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
     }
     *out_size = entry->value_size;
 
-    if (!datafile_read_value_at(target, entry->value_pos, entry->value_size, *out))
+    if (!datafile_read_at(target, entry->value_pos, entry->value_size, *out))
     {
         free(*out);
         *out = NULL;
