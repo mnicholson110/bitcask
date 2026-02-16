@@ -7,8 +7,6 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#define BITCASK_SSIZE_MAX ((size_t)(~(size_t)0 >> 1))
-
 void datafile_init(datafile_t *datafile)
 {
     datafile->fd = -1;
