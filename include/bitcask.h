@@ -40,6 +40,8 @@ bool bitcask_sync(bitcask_handle_t *bitcask);
 
 void bitcask_close(bitcask_handle_t *bitcask);
 
+bool bitcask_merge(bitcask_handle_t *bitcask);
+
 // eventually:
 // bitcask_list_keys()
 // bitcask_merge()

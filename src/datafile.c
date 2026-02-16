@@ -131,3 +131,35 @@ bool datafile_read_at(const datafile_t *datafile,
 
     return true;
 }
+
+bool datafile_copy_entry(datafile_t *src, datafile_t *dest, off_t src_offset, size_t entry_size)
+{
+    if (src->fd == -1 || dest->fd == -1 || dest->mode == DATAFILE_READ || entry_size == 0)
+    {
+        return false;
+    }
+
+    uint8_t scratch[4096];
+    size_t remaining = entry_size;
+    off_t pos = src_offset;
+
+    while (remaining > 0)
+    {
+        size_t want = remaining < sizeof(scratch) ? remaining : sizeof(scratch);
+        if (!pread_exact(src->fd, scratch, want, pos))
+        {
+            return false;
+        }
+
+        if (!pwrite_exact(dest->fd, scratch, want, dest->write_offset))
+        {
+            return false;
+        }
+
+        remaining -= want;
+        pos += (off_t)want;
+        dest->write_offset += (off_t)want;
+    }
+
+    return true;
+}

@@ -46,4 +46,6 @@ bool datafile_read_at(const datafile_t *datafile,
                       uint32_t size,
                       uint8_t *out);
 
+bool datafile_copy_entry(datafile_t *src, datafile_t *dest, off_t src_offset, size_t entry_size);
+
 #endif

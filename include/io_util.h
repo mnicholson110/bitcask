@@ -8,6 +8,8 @@
 
 bool pread_exact(int fd, uint8_t *buf, size_t len, off_t offset);
 
+bool pwrite_exact(int fd, uint8_t *buf, size_t len, off_t offset);
+
 bool write_entry_exact(int fd,
                        const void *header,
                        const void *key,

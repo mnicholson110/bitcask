@@ -548,3 +548,119 @@ void bitcask_close(bitcask_handle_t *bitcask)
     bitcask->inactive_count = 0;
     keydir_free(&bitcask->keydir);
 }
+
+bool bitcask_merge(bitcask_handle_t *bitcask)
+{
+    if (!can_write(bitcask->opts))
+    {
+        return false;
+    }
+
+    // put in a loop, to compact into more than 1 output
+    uint32_t cur_tmp_file_id = 0;
+
+    // open a temp datafile to write to
+    datafile_t tmp;
+    datafile_init(&tmp);
+
+    size_t dir_len = strlen(bitcask->dir_path);
+    bool has_slash = (dir_len > 0 && bitcask->dir_path[dir_len - 1] == '/');
+    size_t path_len = dir_len + (has_slash ? 0 : 1) + 32;
+    char *file_path = malloc(path_len);
+    if (file_path == NULL)
+    {
+        return false;
+    }
+    int n = snprintf(file_path, path_len, "%s%s%02" PRIu32 ".tmpdata", bitcask->dir_path,
+                     has_slash ? "" : "/", cur_tmp_file_id);
+    if (n < 0 || (size_t)n >= path_len)
+    {
+        free(file_path);
+        return false;
+    }
+
+    if (!datafile_open(&tmp, file_path, cur_tmp_file_id, DATAFILE_READ_WRITE))
+    {
+        free(file_path);
+        return false;
+    };
+
+    // iterate over inactive files
+    for (size_t i = 0; i < bitcask->inactive_count; i++)
+    {
+        off_t offset = 0;
+        datafile_t *cur = &bitcask->inactive_files[i];
+
+        while (offset < cur->write_offset)
+        {
+            uint32_t remaining = (cur->write_offset - offset);
+            if (remaining < ENTRY_HEADER_SIZE)
+            {
+                return false;
+            }
+
+            entry_header_t header;
+            uint8_t hdr_buf[ENTRY_HEADER_SIZE];
+            if (!datafile_read_at(cur, offset, ENTRY_HEADER_SIZE, hdr_buf))
+            {
+                return false;
+            }
+
+            entry_header_decode(&header, hdr_buf);
+
+            if (header.key_size == 0)
+            {
+                return false;
+            }
+
+            uint32_t remaining_payload = remaining - ENTRY_HEADER_SIZE;
+            if (header.key_size > remaining_payload)
+            {
+                return false;
+            }
+            if (header.value_size > (remaining_payload - header.key_size))
+            {
+                return false;
+            }
+
+            offset += ENTRY_HEADER_SIZE;
+
+            uint8_t *key = malloc(header.key_size);
+            if (key == NULL)
+            {
+                return false;
+            }
+            if (!datafile_read_at(cur, offset, header.key_size, key))
+            {
+                free(key);
+                return false;
+            }
+
+            offset += header.key_size;
+
+            // check if entry is "live"
+            const keydir_value_t *old_keydir_value = keydir_get(&bitcask->keydir, key, header.key_size);
+            if (old_keydir_value == NULL || old_keydir_value->file_id != cur->file_id || header.value_size == 0 || old_keydir_value->value_pos != offset)
+            {
+                offset += header.value_size;
+                free(key);
+                continue;
+            }
+
+            if (!datafile_copy_entry(cur, &tmp, offset - header.key_size - ENTRY_HEADER_SIZE, ENTRY_HEADER_SIZE + header.key_size + header.value_size))
+            {
+                free(key);
+                return false;
+            }
+
+            free(key);
+            offset += header.value_size;
+        }
+    }
+
+    // append whole entry to new tmp file
+    // atomically swap/remove
+
+    free(file_path);
+    return true;
+}
