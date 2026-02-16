@@ -257,7 +257,7 @@ static bool run_write_workload(const bench_config_t *cfg)
 static bool run_read_workload(const bench_config_t *cfg)
 {
     bitcask_handle_t db;
-    if (!bitcask_open(&db, cfg->seq_dir, 0))
+    if (!bitcask_open(&db, cfg->seq_dir, BITCASK_READ_ONLY))
     {
         return false;
     }
@@ -582,7 +582,7 @@ static bool run_rotation_mixed_quick(const bench_config_t *cfg)
         return false;
     }
 
-    if (!bitcask_open(&db, cfg->rotate_dir, 0))
+    if (!bitcask_open(&db, cfg->rotate_dir, BITCASK_READ_ONLY))
     {
         free(value);
         free(exists);

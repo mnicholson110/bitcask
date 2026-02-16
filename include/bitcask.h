@@ -9,6 +9,7 @@
 
 typedef enum bitcask_opts
 {
+    BITCASK_READ_ONLY = 0,
     BITCASK_READ_WRITE = 1,
     BITCASK_SYNC_ON_PUT = 2
 } bitcask_opts_t;
