@@ -46,7 +46,7 @@ make clean
 ## TODO
 
 - [X] Compaction / merge — reclaim space from dead keys and old versions
-    - [ ] Clean up empty merge files
+    - [X] Clean up empty merge files
 - [ ] Hint files - generate hint files on merge for faster startup
 - [ ] Merge flags - flags for automatic merge behavior
 - [ ] Fold — iterate over all live key-value pairs

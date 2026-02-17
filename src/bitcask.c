@@ -28,6 +28,7 @@ static int cmp_u32(const void *a, const void *b)
     uint32_t y = *(const uint32_t *)b;
     return (x > y) - (x < y); // avoids overflow from subtraction
 }
+
 static bool build_file_path(const char *dir_path, const char *suffix, uint32_t file_id, char *out, size_t out_size)
 {
     int dir_len = strlen(dir_path);
@@ -815,9 +816,18 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
         }
     }
 
-    // seal final file
+    // seal final file or remove if empty
     datafile_close(&tmp);
-    if (!datafile_open(&new_inactive[current_merge_file], file_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ))
+
+    if (tmp.write_offset == 0)
+    {
+        if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + current_merge_file, file_path, path_max))
+        {
+            unlink(file_path);
+        }
+        current_merge_file--;
+    }
+    else if (!datafile_open(&new_inactive[current_merge_file], file_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ))
     {
         for (size_t i = 0; i < current_merge_file + 1; i++)
         {
