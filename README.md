@@ -15,6 +15,7 @@ bitcask_put(&db, key, key_len, val, val_len);
 bitcask_get(&db, key, key_len, &out, &out_len);
 bitcask_delete(&db, key, key_len);
 bitcask_sync(&db);
+bitcask_merge(&db);
 
 bitcask_close(&db);
 ```
@@ -31,7 +32,7 @@ Each entry is appended as:
 
 All integers are little-endian. Deletes are tombstones (value_size = 0). On open, every entry is replayed to rebuild the keydir.
 
-Data files are named `01.data`, `02.data`, etc. A new file is created when the active file exceeds 256 MB.
+Data files are named `01.data`, `02.data`, etc. A new file is created when the active file would exceed 256 MB.
 
 ## Build
 
@@ -45,6 +46,9 @@ make clean
 ## TODO
 
 - [X] Compaction / merge — reclaim space from dead keys and old versions
+    - [ ] Clean up empty merge files
+- [ ] Hint files - generate hint files on merge for faster startup
+- [ ] Merge flags - flags for automatic merge behavior
 - [ ] Fold — iterate over all live key-value pairs
 - [ ] List Keys — list all live keys in the DB
 - [ ] On-disk single-writer lockfile — prevent concurrent read-write opens
