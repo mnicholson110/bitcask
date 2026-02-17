@@ -9,7 +9,7 @@ Append-only writes, O(1) reads via an in-memory hash table (keydir), CRC32 integ
 ```c
 bitcask_handle_t db;
 
-bitcask_open(&db, "my.db", BITCASK_READ_WRITE);
+bitcask_open(&db, "my_db", BITCASK_READ_WRITE);
 
 bitcask_put(&db, key, key_len, val, val_len);
 bitcask_get(&db, key, key_len, &out, &out_len);
