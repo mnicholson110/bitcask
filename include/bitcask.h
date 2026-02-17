@@ -21,6 +21,7 @@ typedef struct bitcask_handle
     datafile_t *inactive_files;
     size_t inactive_count;
     size_t inactive_capacity;
+    uint32_t next_file_id;
     char *dir_path;
     uint8_t opts;
 } bitcask_handle_t;

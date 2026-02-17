@@ -50,6 +50,9 @@ static bool cleanup_test_dirs(void)
         "test/test-readonly-missing",
         "test/test-crc-get",
         "test/test-crc-open",
+        "test/test-merge-compact",
+        "test/test-merge-readonly",
+        "test/test-merge-no-inactive",
         "test/bench-seq",
         "test/bench-mixed",
     };
@@ -134,6 +137,65 @@ static bool truncate_file_to(const char *path, off_t size)
     return truncate(path, size) == 0;
 }
 
+typedef struct seed_entry
+{
+    const char *key;
+    const char *value; // NULL -> tombstone
+} seed_entry_t;
+
+static bool build_datafile_path(const char *dir, uint32_t file_id, const char *suffix,
+                                char *out, size_t out_size)
+{
+    int n = snprintf(out, out_size, "%s/%02u%s", dir, (unsigned)file_id, suffix);
+    if (n < 0 || (size_t)n >= out_size)
+    {
+        return false;
+    }
+    return true;
+}
+
+static bool seed_datafile(const char *dir, uint32_t file_id,
+                          const seed_entry_t *entries, size_t entry_count)
+{
+    char path[512];
+    if (!build_datafile_path(dir, file_id, ".data", path, sizeof(path)))
+    {
+        return false;
+    }
+
+    datafile_t file;
+    datafile_init(&file);
+    if (!datafile_open(&file, path, file_id, DATAFILE_READ_WRITE))
+    {
+        return false;
+    }
+
+    bool ok = true;
+    uint64_t ts = 1;
+    for (size_t i = 0; i < entry_count; i++)
+    {
+        const uint8_t *key = (const uint8_t *)entries[i].key;
+        uint32_t key_size = (uint32_t)strlen(entries[i].key);
+        const uint8_t *value = entries[i].value == NULL ? NULL : (const uint8_t *)entries[i].value;
+        uint32_t value_size = entries[i].value == NULL ? 0u : (uint32_t)strlen(entries[i].value);
+
+        keydir_value_t out;
+        if (!datafile_append(&file, ts, key, key_size, value, value_size, &out))
+        {
+            ok = false;
+            break;
+        }
+        ts++;
+    }
+
+    datafile_close(&file);
+    if (!ok)
+    {
+        (void)unlink(path);
+    }
+    return ok;
+}
+
 static bool expect_value_eq(bitcask_handle_t *db,
                             const uint8_t *key, size_t key_size,
                             const uint8_t *expected, size_t expected_size)
@@ -147,6 +209,18 @@ static bool expect_value_eq(bitcask_handle_t *db,
         return false;
     }
     free(out);
+    return true;
+}
+
+static bool expect_missing(bitcask_handle_t *db, const uint8_t *key, size_t key_size)
+{
+    uint8_t *out = NULL;
+    size_t out_size = 0;
+    if (bitcask_get(db, key, key_size, &out, &out_size))
+    {
+        free(out);
+        return false;
+    }
     return true;
 }
 
@@ -1102,6 +1176,180 @@ static bool test_crc_rejected_on_reopen(void)
     return true;
 }
 
+static bool test_merge_compacts_inactive_files(void)
+{
+    const char *dir = "test/test-merge-compact";
+    const char *old_1 = "test/test-merge-compact/01.data";
+    const char *old_2 = "test/test-merge-compact/02.data";
+    const char *active_3 = "test/test-merge-compact/03.data";
+    const char *merged_4 = "test/test-merge-compact/04.data";
+    const char *merged_4_tmp = "test/test-merge-compact/04.data.merge";
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+    if (mkdir(dir, 0755) != 0)
+    {
+        return false;
+    }
+
+    const seed_entry_t file1_entries[] = {
+        {.key = "alpha", .value = "alpha-v1"},
+        {.key = "beta", .value = "beta-v1"},
+        {.key = "gamma", .value = "gamma-v1"},
+    };
+    const seed_entry_t file2_entries[] = {
+        {.key = "alpha", .value = "alpha-v2"},
+        {.key = "beta", .value = NULL},
+        {.key = "delta", .value = "delta-v1"},
+    };
+
+    if (!seed_datafile(dir, 1, file1_entries, sizeof(file1_entries) / sizeof(file1_entries[0])))
+    {
+        return false;
+    }
+    if (!seed_datafile(dir, 2, file2_entries, sizeof(file2_entries) / sizeof(file2_entries[0])))
+    {
+        return false;
+    }
+
+    bitcask_handle_t db;
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+
+    if (!bitcask_put(&db, (const uint8_t *)"gamma", 5, (const uint8_t *)"gamma-active", 12))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+    if (!bitcask_put(&db, (const uint8_t *)"delta", 5, (const uint8_t *)"delta-active", 12))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+    if (!bitcask_put(&db, (const uint8_t *)"epsilon", 7, (const uint8_t *)"epsilon-active", 14))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+
+    if (!bitcask_merge(&db))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+
+    if (!expect_value_eq(&db, (const uint8_t *)"alpha", 5, (const uint8_t *)"alpha-v2", 8) ||
+        !expect_missing(&db, (const uint8_t *)"beta", 4) ||
+        !expect_value_eq(&db, (const uint8_t *)"gamma", 5, (const uint8_t *)"gamma-active", 12) ||
+        !expect_value_eq(&db, (const uint8_t *)"delta", 5, (const uint8_t *)"delta-active", 12) ||
+        !expect_value_eq(&db, (const uint8_t *)"epsilon", 7, (const uint8_t *)"epsilon-active", 14))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+
+    bitcask_close(&db);
+
+    if (path_exists(old_1) || path_exists(old_2) || !path_exists(active_3) ||
+        !path_exists(merged_4) || path_exists(merged_4_tmp))
+    {
+        return false;
+    }
+
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+    bool ok = expect_value_eq(&db, (const uint8_t *)"alpha", 5, (const uint8_t *)"alpha-v2", 8) &&
+              expect_missing(&db, (const uint8_t *)"beta", 4) &&
+              expect_value_eq(&db, (const uint8_t *)"gamma", 5, (const uint8_t *)"gamma-active", 12) &&
+              expect_value_eq(&db, (const uint8_t *)"delta", 5, (const uint8_t *)"delta-active", 12) &&
+              expect_value_eq(&db, (const uint8_t *)"epsilon", 7, (const uint8_t *)"epsilon-active", 14);
+    bitcask_close(&db);
+    return ok;
+}
+
+static bool test_merge_rejected_read_only(void)
+{
+    const char *dir = "test/test-merge-readonly";
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+    if (mkdir(dir, 0755) != 0)
+    {
+        return false;
+    }
+
+    const seed_entry_t file1_entries[] = {
+        {.key = "k", .value = "v1"},
+    };
+    const seed_entry_t file2_entries[] = {
+        {.key = "k", .value = "v2"},
+    };
+
+    if (!seed_datafile(dir, 1, file1_entries, sizeof(file1_entries) / sizeof(file1_entries[0])) ||
+        !seed_datafile(dir, 2, file2_entries, sizeof(file2_entries) / sizeof(file2_entries[0])))
+    {
+        return false;
+    }
+
+    bitcask_handle_t db;
+    if (!bitcask_open(&db, dir, BITCASK_READ_ONLY))
+    {
+        return false;
+    }
+
+    if (!expect_value_eq(&db, (const uint8_t *)"k", 1, (const uint8_t *)"v2", 2))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+
+    if (bitcask_merge(&db))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+
+    bitcask_close(&db);
+    return true;
+}
+
+static bool test_merge_rejected_without_inactive(void)
+{
+    const char *dir = "test/test-merge-no-inactive";
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+
+    bitcask_handle_t db;
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+
+    if (!bitcask_put(&db, (const uint8_t *)"k", 1, (const uint8_t *)"v", 1))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+
+    if (bitcask_merge(&db))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+
+    bool ok = expect_value_eq(&db, (const uint8_t *)"k", 1, (const uint8_t *)"v", 1);
+    bitcask_close(&db);
+    return ok;
+}
+
 int main(void)
 {
     if (!cleanup_test_dirs())
@@ -1126,6 +1374,9 @@ int main(void)
         {.name = "read_only_semantics", .fn = test_read_only_semantics},
         {.name = "crc_not_checked_on_get", .fn = test_crc_not_checked_on_get},
         {.name = "crc_rejected_on_reopen", .fn = test_crc_rejected_on_reopen},
+        {.name = "merge_compacts_inactive_files", .fn = test_merge_compacts_inactive_files},
+        {.name = "merge_rejected_read_only", .fn = test_merge_rejected_read_only},
+        {.name = "merge_rejected_without_inactive", .fn = test_merge_rejected_without_inactive},
     };
 
     size_t passed = 0;
