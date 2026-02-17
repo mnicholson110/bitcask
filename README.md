@@ -44,7 +44,7 @@ make clean
 
 ## TODO
 
-- [ ] Compaction / merge — reclaim space from dead keys and old versions
+- [X] Compaction / merge — reclaim space from dead keys and old versions
 - [ ] Fold — iterate over all live key-value pairs
 - [ ] List Keys — list all live keys in the DB
 - [ ] On-disk single-writer lockfile — prevent concurrent read-write opens
