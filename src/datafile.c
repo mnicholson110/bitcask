@@ -67,11 +67,8 @@ bool datafile_sync(datafile_t *datafile)
     return true;
 }
 
-bool datafile_append(datafile_t *datafile,
-                     uint64_t timestamp,
-                     const uint8_t *key, uint32_t key_size,
-                     const uint8_t *value, uint32_t value_size,
-                     keydir_value_t *out)
+bool datafile_append(datafile_t *datafile, uint64_t timestamp, const uint8_t *key, uint32_t key_size,
+                     const uint8_t *value, uint32_t value_size, keydir_value_t *out)
 {
     if (datafile->fd == -1 || datafile->mode == DATAFILE_READ || out == NULL)
     {
@@ -97,14 +94,13 @@ bool datafile_append(datafile_t *datafile,
     // add crc value to header buf
     encode_u32_le(header, crc);
 
-    size_t total = ENTRY_HEADER_SIZE + key_size + value_size;
-    if (!write_entry_exact(datafile->fd, header, key, key_size, value, value_size, datafile->write_offset, total))
+    if (!write_entry_exact(datafile->fd, header, key, key_size, value, value_size, datafile->write_offset))
     {
         return false;
     }
 
     off_t entry_pos = datafile->write_offset;
-    datafile->write_offset += total;
+    datafile->write_offset += ENTRY_HEADER_SIZE + key_size + value_size;
 
     out->timestamp = timestamp;
     out->file_id = datafile->file_id;
