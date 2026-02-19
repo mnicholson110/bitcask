@@ -990,7 +990,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             }
 
             uint8_t value_pos[sizeof(uint32_t)];
-            encode_u32_le(value_pos, offset);
+            encode_u32_le(value_pos, tmp.write_offset - header.value_size);
             write_hint_exact(hint.fd, hdr_buf, key, header.key_size, value_pos, hint.write_offset);
             hint.write_offset += (ENTRY_HEADER_SIZE - ENTRY_HEADER_TIMESTAMP_OFFSET) + sizeof(uint32_t) + header.key_size;
 
@@ -1149,6 +1149,10 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
         if (build_file_path(bitcask->dir_path, ".data", old_inactive[i].file_id, file_path, path_max))
         {
             (void)unlink(file_path);
+        }
+        if (build_file_path(bitcask->dir_path, ".hint", old_inactive[i].file_id, hint_path, path_max))
+        {
+            (void)unlink(hint_path);
         }
 
         // here: unlink old hintfiles
