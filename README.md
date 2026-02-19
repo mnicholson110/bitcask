@@ -47,7 +47,8 @@ make clean
 
 - [X] Compaction / merge — reclaim space from dead keys and old versions
     - [X] Clean up empty merge files
-- [ ] Hint files - generate hint files on merge for faster startup
+- [X] Hint files - generate hint files on merge for faster startup
+    - [ ] Clean up the disaster in bitcask.c from implementing this 
 - [ ] Merge flags - flags for automatic merge behavior
 - [ ] Fold — iterate over all live key-value pairs
 - [ ] List Keys — list all live keys in the DB
