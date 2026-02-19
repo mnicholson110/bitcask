@@ -402,6 +402,8 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         return false;
     };
 
+    rewinddir(dirp);
+
     if (!scan_files(dirp, &hints, &hint_count, ".hint"))
     {
         free(ids);
@@ -988,7 +990,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             }
 
             uint8_t value_pos[sizeof(uint32_t)];
-            encode_u32_le(value_pos, old_keydir_value->value_pos);
+            encode_u32_le(value_pos, offset);
             write_hint_exact(hint.fd, hdr_buf, key, header.key_size, value_pos, hint.write_offset);
             hint.write_offset += (ENTRY_HEADER_SIZE - ENTRY_HEADER_TIMESTAMP_OFFSET) + sizeof(uint32_t) + header.key_size;
 
