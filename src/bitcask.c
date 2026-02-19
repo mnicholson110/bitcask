@@ -50,7 +50,7 @@ static bool populate_keydir_from_hint(uint32_t id, bitcask_handle_t *bitcask)
 {
     int path_max = strlen(bitcask->dir_path) + 40;
     char hint_path[path_max];
-    if (!build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id, hint_path, path_max))
+    if (!build_file_path(bitcask->dir_path, ".hint", id, hint_path, path_max))
     {
         return false;
     }
@@ -113,10 +113,6 @@ static bool populate_keydir_from_hint(uint32_t id, bitcask_handle_t *bitcask)
         {
             return false;
         }
-        if (value_size > (remaining_payload - key_size))
-        {
-            return false;
-        }
 
         offset += 20;
 
@@ -125,7 +121,7 @@ static bool populate_keydir_from_hint(uint32_t id, bitcask_handle_t *bitcask)
         {
             return false;
         }
-        if (!pread_exact(fd, hint_buf, key_size, offset))
+        if (!pread_exact(fd, key, key_size, offset))
         {
             free(key);
             return false;
@@ -146,8 +142,6 @@ static bool populate_keydir_from_hint(uint32_t id, bitcask_handle_t *bitcask)
         }
 
         free(key);
-
-        offset += value_size;
     }
 
     return true;
