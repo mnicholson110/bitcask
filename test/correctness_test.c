@@ -51,6 +51,7 @@ static bool cleanup_test_dirs(void)
         "test/test-crc-get",
         "test/test-crc-open",
         "test/test-merge-compact",
+        "test/test-merge-hint-values",
         "test/test-merge-readonly",
         "test/test-merge-no-inactive",
         "test/bench-seq",
@@ -1272,6 +1273,154 @@ static bool test_merge_compacts_inactive_files(void)
     return ok;
 }
 
+static bool test_merge_hint_values_consistent(void)
+{
+    const char *dir = "test/test-merge-hint-values";
+    const char *merged_data = "test/test-merge-hint-values/04.data";
+    const char *merged_hint = "test/test-merge-hint-values/04.hint";
+    const char *merged_hint_tmp = "test/test-merge-hint-values/04.hint.merge";
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+    if (mkdir(dir, 0755) != 0)
+    {
+        return false;
+    }
+
+    const seed_entry_t file1_entries[] = {
+        {.key = "alpha", .value = "alpha-v1-short"},
+        {.key = "beta", .value = "beta-v1"},
+        {.key = "gamma", .value = "gamma-v1-short"},
+        {.key = "zeta", .value = "zeta-v1-qqqqqqqqqqqqqqqq"},
+        {.key = "epsilon", .value = "epsilon-v1"},
+    };
+    const seed_entry_t file2_entries[] = {
+        {.key = "alpha", .value = "alpha-v2-0000000000000000000000000001"},
+        {.key = "beta", .value = NULL},
+        {.key = "gamma", .value = "gamma-v2-111111111111111111111111111111111111"},
+        {.key = "delta", .value = "delta-v1-XYZ"},
+        {.key = "epsilon", .value = NULL},
+        {.key = "eta", .value = "eta-v1-final"},
+    };
+
+    if (!seed_datafile(dir, 1, file1_entries, sizeof(file1_entries) / sizeof(file1_entries[0])) ||
+        !seed_datafile(dir, 2, file2_entries, sizeof(file2_entries) / sizeof(file2_entries[0])))
+    {
+        return false;
+    }
+
+    bitcask_handle_t db;
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+
+    uint8_t *alpha_before = NULL;
+    uint8_t *gamma_before = NULL;
+    uint8_t *delta_before = NULL;
+    uint8_t *zeta_before = NULL;
+    uint8_t *eta_before = NULL;
+    size_t alpha_before_size = 0;
+    size_t gamma_before_size = 0;
+    size_t delta_before_size = 0;
+    size_t zeta_before_size = 0;
+    size_t eta_before_size = 0;
+
+    if (!bitcask_get(&db, (const uint8_t *)"alpha", 5, &alpha_before, &alpha_before_size) ||
+        !bitcask_get(&db, (const uint8_t *)"gamma", 5, &gamma_before, &gamma_before_size) ||
+        !bitcask_get(&db, (const uint8_t *)"delta", 5, &delta_before, &delta_before_size) ||
+        !bitcask_get(&db, (const uint8_t *)"zeta", 4, &zeta_before, &zeta_before_size) ||
+        !bitcask_get(&db, (const uint8_t *)"eta", 3, &eta_before, &eta_before_size))
+    {
+        free(alpha_before);
+        free(gamma_before);
+        free(delta_before);
+        free(zeta_before);
+        free(eta_before);
+        bitcask_close(&db);
+        return false;
+    }
+
+    if (!expect_missing(&db, (const uint8_t *)"beta", 4) ||
+        !expect_missing(&db, (const uint8_t *)"epsilon", 7))
+    {
+        free(alpha_before);
+        free(gamma_before);
+        free(delta_before);
+        free(zeta_before);
+        free(eta_before);
+        bitcask_close(&db);
+        return false;
+    }
+
+    if (!bitcask_merge(&db))
+    {
+        free(alpha_before);
+        free(gamma_before);
+        free(delta_before);
+        free(zeta_before);
+        free(eta_before);
+        bitcask_close(&db);
+        return false;
+    }
+
+    if (!expect_value_eq(&db, (const uint8_t *)"alpha", 5, alpha_before, alpha_before_size) ||
+        !expect_value_eq(&db, (const uint8_t *)"gamma", 5, gamma_before, gamma_before_size) ||
+        !expect_value_eq(&db, (const uint8_t *)"delta", 5, delta_before, delta_before_size) ||
+        !expect_value_eq(&db, (const uint8_t *)"zeta", 4, zeta_before, zeta_before_size) ||
+        !expect_value_eq(&db, (const uint8_t *)"eta", 3, eta_before, eta_before_size) ||
+        !expect_missing(&db, (const uint8_t *)"beta", 4) ||
+        !expect_missing(&db, (const uint8_t *)"epsilon", 7))
+    {
+        free(alpha_before);
+        free(gamma_before);
+        free(delta_before);
+        free(zeta_before);
+        free(eta_before);
+        bitcask_close(&db);
+        return false;
+    }
+
+    bitcask_close(&db);
+
+    if (!path_exists(merged_data) || !path_exists(merged_hint) || path_exists(merged_hint_tmp))
+    {
+        free(alpha_before);
+        free(gamma_before);
+        free(delta_before);
+        free(zeta_before);
+        free(eta_before);
+        return false;
+    }
+
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    {
+        free(alpha_before);
+        free(gamma_before);
+        free(delta_before);
+        free(zeta_before);
+        free(eta_before);
+        return false;
+    }
+
+    bool ok = expect_value_eq(&db, (const uint8_t *)"alpha", 5, alpha_before, alpha_before_size) &&
+              expect_value_eq(&db, (const uint8_t *)"gamma", 5, gamma_before, gamma_before_size) &&
+              expect_value_eq(&db, (const uint8_t *)"delta", 5, delta_before, delta_before_size) &&
+              expect_value_eq(&db, (const uint8_t *)"zeta", 4, zeta_before, zeta_before_size) &&
+              expect_value_eq(&db, (const uint8_t *)"eta", 3, eta_before, eta_before_size) &&
+              expect_missing(&db, (const uint8_t *)"beta", 4) &&
+              expect_missing(&db, (const uint8_t *)"epsilon", 7);
+
+    bitcask_close(&db);
+    free(alpha_before);
+    free(gamma_before);
+    free(delta_before);
+    free(zeta_before);
+    free(eta_before);
+    return ok;
+}
+
 static bool test_merge_rejected_read_only(void)
 {
     const char *dir = "test/test-merge-readonly";
@@ -1375,6 +1524,7 @@ int main(void)
         {.name = "crc_not_checked_on_get", .fn = test_crc_not_checked_on_get},
         {.name = "crc_rejected_on_reopen", .fn = test_crc_rejected_on_reopen},
         {.name = "merge_compacts_inactive_files", .fn = test_merge_compacts_inactive_files},
+        {.name = "merge_hint_values_consistent", .fn = test_merge_hint_values_consistent},
         {.name = "merge_rejected_read_only", .fn = test_merge_rejected_read_only},
         {.name = "merge_rejected_without_inactive", .fn = test_merge_rejected_without_inactive},
     };
