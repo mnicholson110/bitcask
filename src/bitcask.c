@@ -1,6 +1,7 @@
 #include "../include/bitcask.h"
 #include "../include/crc.h"
 #include "../include/entry.h"
+#include "../include/hintfile.h"
 #include "../include/io_util.h"
 #include <dirent.h>
 #include <errno.h>
@@ -29,21 +30,6 @@ static int cmp_u32(const void *a, const void *b)
     uint32_t x = *(const uint32_t *)a;
     uint32_t y = *(const uint32_t *)b;
     return (x > y) - (x < y); // avoids overflow from subtraction
-}
-
-static bool build_file_path(const char *dir_path, const char *suffix, uint32_t file_id, char *out, size_t out_size)
-{
-    int dir_len = strlen(dir_path);
-    bool has_slash = (dir_len > 0 && dir_path[dir_len - 1] == '/');
-
-    int path_n = snprintf(out, out_size, "%s%s%02" PRIu32 "%s", dir_path,
-                          has_slash ? "" : "/", file_id, suffix);
-    if (path_n < 0 || (size_t)path_n >= out_size)
-    {
-        return false;
-    }
-
-    return true;
 }
 
 static bool populate_keydir_from_hint(uint32_t id, bitcask_handle_t *bitcask)
@@ -336,26 +322,13 @@ static bool rotate_active_file(bitcask_handle_t *bitcask)
     uint32_t old_active_id = bitcask->active_file.file_id;
     datafile_close(&bitcask->active_file);
 
-    int path_max = strlen(bitcask->dir_path) + 40;
-    char file_path[path_max];
-
-    if (!build_file_path(bitcask->dir_path, ".data", old_active_id, file_path, path_max))
-    {
-        return false;
-    }
-
-    if (!datafile_open(&bitcask->inactive_files[bitcask->inactive_count], file_path, old_active_id, DATAFILE_READ))
+    if (!datafile_open(&bitcask->inactive_files[bitcask->inactive_count], bitcask->dir_path, old_active_id, DATAFILE_READ))
     {
         return false;
     };
 
     // open new active file
-    if (!build_file_path(bitcask->dir_path, ".data", bitcask->next_file_id, file_path, path_max))
-    {
-        return false;
-    }
-
-    if (!datafile_open(&bitcask->active_file, file_path, bitcask->next_file_id, DATAFILE_READ_WRITE))
+    if (!datafile_open(&bitcask->active_file, bitcask->dir_path, bitcask->next_file_id, DATAFILE_READ_WRITE))
     {
         return false;
     }
@@ -440,25 +413,11 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         bitcask_close(bitcask);
         return false;
     }
-
-    // buffer for filepaths
-    int path_max = (int)strlen(bitcask->dir_path) + 40;
-    char file_path[path_max];
-
     // set existing files as inactive
     for (size_t i = 0; i < count; i++)
     {
         datafile_init(&bitcask->inactive_files[i]);
-
-        if (!build_file_path(bitcask->dir_path, ".data", ids[i], file_path, path_max))
-        {
-            free(ids);
-            closedir(dirp);
-            bitcask_close(bitcask);
-            return false;
-        }
-
-        if (!datafile_open(&bitcask->inactive_files[i], file_path, ids[i], DATAFILE_READ))
+        if (!datafile_open(&bitcask->inactive_files[i], bitcask->dir_path, ids[i], DATAFILE_READ))
         {
             free(ids);
             closedir(dirp);
@@ -502,16 +461,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         bitcask->next_file_id = count == 0 ? 1 : ids[count - 1] + 1;
 
         // open datafile
-        if (!build_file_path(bitcask->dir_path, ".data", bitcask->next_file_id, file_path, path_max))
-        {
-            free(ids);
-            free(hints);
-            closedir(dirp);
-            bitcask_close(bitcask);
-            return false;
-        }
-
-        if (!datafile_open(&bitcask->active_file, file_path, bitcask->next_file_id, DATAFILE_READ_WRITE))
+        if (!datafile_open(&bitcask->active_file, bitcask->dir_path, bitcask->next_file_id, DATAFILE_READ_WRITE))
         {
             free(ids);
             free(hints);
@@ -680,20 +630,16 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
     }
 
     // open a temp datafile to write to
-    datafile_t tmp, hint;
+    datafile_t tmp;
+    hintfile_t hint;
     datafile_init(&tmp);
-    datafile_init(&hint);
+    hintfile_init(&hint);
 
-    int path_max = strlen(bitcask->dir_path) + 40;
-    char file_path[path_max], hint_path[path_max];
-    if (!build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id, file_path, path_max) ||
-        !build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id, hint_path, path_max))
+    if (!hintfile_open_merge(&hint, bitcask->dir_path, bitcask->next_file_id))
     {
         return false;
-    }
-
-    if (!datafile_open(&tmp, file_path, bitcask->next_file_id, DATAFILE_READ_WRITE) ||
-        !datafile_open(&hint, hint_path, bitcask->next_file_id, DATAFILE_READ_WRITE))
+    };
+    if (!datafile_open_merge(&tmp, bitcask->dir_path, bitcask->next_file_id, DATAFILE_READ_WRITE))
     {
         return false;
     };
@@ -702,12 +648,13 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
     // worst-case scenario is 0 merging, meaning
     // each file is simply copied as-is
     datafile_t *new_inactive = malloc(sizeof(datafile_t) * bitcask->inactive_capacity);
-    if (new_inactive == NULL)
+    hintfile_t *merge_hintfiles = malloc(sizeof(datafile_t) * bitcask->inactive_capacity);
+    if (new_inactive == NULL || merge_hintfiles == NULL)
     {
-        (void)unlink(file_path);
-        (void)unlink(hint_path);
+        (void)unlink(tmp.file_path);
+        (void)unlink(hint.file_path);
         datafile_close(&tmp);
-        datafile_close(&hint);
+        hintfile_close(&hint);
         return false;
     }
     size_t current_merge_file = 0;
@@ -725,22 +672,17 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             {
                 for (size_t i = 0; i < current_merge_file + 1; i++)
                 {
-                    if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                    {
-                        unlink(file_path);
-                    }
-                    if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                    {
-                        unlink(hint_path);
-                    }
+                    unlink(new_inactive[i].file_path);
+                    unlink(merge_hintfiles[i].file_path);
                     if (i != current_merge_file)
                     {
                         datafile_close(&new_inactive[i]);
                     }
                 }
                 free(new_inactive);
+                free(merge_hintfiles);
                 datafile_close(&tmp);
-                datafile_close(&hint);
+                hintfile_close(&hint);
                 return false;
             }
 
@@ -750,93 +692,55 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             {
                 for (size_t i = 0; i < current_merge_file + 1; i++)
                 {
-                    if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                    {
-                        unlink(file_path);
-                    }
-                    if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                    {
-                        unlink(hint_path);
-                    }
+                    unlink(new_inactive[i].file_path);
+                    unlink(merge_hintfiles[i].file_path);
                     if (i != current_merge_file)
                     {
                         datafile_close(&new_inactive[i]);
                     }
                 }
                 free(new_inactive);
+                free(merge_hintfiles);
                 datafile_close(&tmp);
-                datafile_close(&hint);
+                hintfile_close(&hint);
                 return false;
             }
 
             entry_header_decode(&header, hdr_buf);
-
-            if (header.key_size == 0)
-            {
-                for (size_t i = 0; i < current_merge_file + 1; i++)
-                {
-                    if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                    {
-                        unlink(file_path);
-                    }
-                    if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                    {
-                        unlink(hint_path);
-                    }
-                    if (i != current_merge_file)
-                    {
-                        datafile_close(&new_inactive[i]);
-                    }
-                }
-                free(new_inactive);
-                datafile_close(&tmp);
-                datafile_close(&hint);
-                return false;
-            }
 
             uint32_t remaining_payload = remaining - ENTRY_HEADER_SIZE;
             if (header.key_size > remaining_payload)
             {
                 for (size_t i = 0; i < current_merge_file + 1; i++)
                 {
-                    if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                    {
-                        unlink(file_path);
-                    }
-                    if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                    {
-                        unlink(hint_path);
-                    }
+                    unlink(new_inactive[i].file_path);
+                    unlink(merge_hintfiles[i].file_path);
                     if (i != current_merge_file)
                     {
                         datafile_close(&new_inactive[i]);
                     }
                 }
                 free(new_inactive);
+                free(merge_hintfiles);
                 datafile_close(&tmp);
-                datafile_close(&hint);
+                hintfile_close(&hint);
                 return false;
             }
             if (header.value_size > (remaining_payload - header.key_size))
             {
                 for (size_t i = 0; i < current_merge_file + 1; i++)
                 {
-                    if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                    {
-                        unlink(file_path);
-                    }
-                    if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                    {
-                        unlink(hint_path);
-                    }
+                    unlink(new_inactive[i].file_path);
+                    unlink(merge_hintfiles[i].file_path);
                     if (i != current_merge_file)
                     {
                         datafile_close(&new_inactive[i]);
                     }
                 }
                 free(new_inactive);
+                free(merge_hintfiles);
                 datafile_close(&tmp);
-                datafile_close(&hint);
+                hintfile_close(&hint);
                 return false;
             }
 
@@ -847,22 +751,17 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             {
                 for (size_t i = 0; i < current_merge_file + 1; i++)
                 {
-                    if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                    {
-                        unlink(file_path);
-                    }
-                    if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                    {
-                        unlink(hint_path);
-                    }
+                    unlink(new_inactive[i].file_path);
+                    unlink(merge_hintfiles[i].file_path);
                     if (i != current_merge_file)
                     {
                         datafile_close(&new_inactive[i]);
                     }
                 }
                 free(new_inactive);
+                free(merge_hintfiles);
                 datafile_close(&tmp);
-                datafile_close(&hint);
+                hintfile_close(&hint);
                 return false;
             }
 
@@ -870,22 +769,17 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             {
                 for (size_t i = 0; i < current_merge_file + 1; i++)
                 {
-                    if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                    {
-                        unlink(file_path);
-                    }
-                    if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                    {
-                        unlink(hint_path);
-                    }
+                    unlink(new_inactive[i].file_path);
+                    unlink(merge_hintfiles[i].file_path);
                     if (i != current_merge_file)
                     {
                         datafile_close(&new_inactive[i]);
                     }
                 }
                 free(new_inactive);
+                free(merge_hintfiles);
                 datafile_close(&tmp);
-                datafile_close(&hint);
+                hintfile_close(&hint);
                 return false;
             }
 
@@ -904,39 +798,37 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             if ((size_t)tmp.write_offset > MAX_FILE_SIZE - ENTRY_HEADER_SIZE - header.key_size - header.value_size)
             {
                 datafile_close(&tmp);
-                if (!datafile_open(&new_inactive[current_merge_file], file_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ))
+                hintfile_close(&hint);
+                if (!datafile_open_merge(&new_inactive[current_merge_file], bitcask->dir_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ) ||
+                    !hintfile_open_merge(&merge_hintfiles[current_merge_file], bitcask->dir_path, bitcask->next_file_id + current_merge_file))
                 {
                     free(key);
                     for (size_t i = 0; i < current_merge_file + 1; i++)
                     {
-                        if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                        {
-                            unlink(file_path);
-                        }
+                        unlink(new_inactive[i].file_path);
+                        unlink(merge_hintfiles[i].file_path);
                         if (i != current_merge_file)
                         {
                             datafile_close(&new_inactive[i]);
                         }
                     }
                     free(new_inactive);
+                    free(merge_hintfiles);
                     return false;
                 };
 
                 // here: close hintfile
-                datafile_close(&hint);
-                datafile_init(&hint);
+                hintfile_init(&hint);
                 datafile_init(&tmp);
                 current_merge_file++;
-                if (!build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + current_merge_file, file_path, path_max) ||
-                    !build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + current_merge_file, hint_path, path_max))
+                if (!datafile_open_merge(&tmp, bitcask->dir_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ_WRITE) ||
+                    !hintfile_open_merge(&hint, bitcask->dir_path, bitcask->next_file_id + current_merge_file))
                 {
                     free(key);
                     for (size_t i = 0; i < current_merge_file + 1; i++)
                     {
-                        if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                        {
-                            unlink(file_path);
-                        }
+                        unlink(new_inactive[i].file_path);
+                        unlink(merge_hintfiles[i].file_path);
                         if (i != current_merge_file)
                         {
                             datafile_close(&new_inactive[i]);
@@ -944,26 +836,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
                     }
                     datafile_close(&tmp);
                     free(new_inactive);
-                    return false;
-                }
-
-                if (!datafile_open(&tmp, file_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ_WRITE) ||
-                    !datafile_open(&hint, hint_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ_WRITE))
-                {
-                    free(key);
-                    for (size_t i = 0; i < current_merge_file + 1; i++)
-                    {
-                        if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                        {
-                            unlink(file_path);
-                        }
-                        if (i != current_merge_file)
-                        {
-                            datafile_close(&new_inactive[i]);
-                        }
-                    }
-                    datafile_close(&tmp);
-                    free(new_inactive);
+                    free(merge_hintfiles);
                     return false;
                 };
 
@@ -975,10 +848,8 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
                 free(key);
                 for (size_t i = 0; i < current_merge_file + 1; i++)
                 {
-                    if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                    {
-                        unlink(file_path);
-                    }
+                    unlink(new_inactive[i].file_path);
+                    unlink(merge_hintfiles[i].file_path);
                     if (i != current_merge_file)
                     {
                         datafile_close(&new_inactive[i]);
@@ -986,6 +857,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
                 }
                 datafile_close(&tmp);
                 free(new_inactive);
+                free(merge_hintfiles);
                 return false;
             }
 
@@ -1005,31 +877,24 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
 
     if (tmp.write_offset == 0)
     {
+        unlink(tmp.file_path);
+        unlink(hint.file_path);
         datafile_close(&tmp);
-        if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + current_merge_file, file_path, path_max))
-        {
-            unlink(file_path);
-        }
-        datafile_close(&hint);
-        if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + current_merge_file, hint_path, path_max))
-        {
-            unlink(hint_path);
-        }
+        hintfile_close(&hint);
         current_merge_file--;
     }
     else
     {
         datafile_close(&tmp);
-        datafile_close(&hint);
+        hintfile_close(&hint);
 
-        if (!datafile_open(&new_inactive[current_merge_file], file_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ))
+        if (!datafile_open_merge(&new_inactive[current_merge_file], bitcask->dir_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ) ||
+            !hintfile_open_merge(&merge_hintfiles[current_merge_file], bitcask->dir_path, bitcask->next_file_id + current_merge_file))
         {
             for (size_t i = 0; i < current_merge_file + 1; i++)
             {
-                if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                {
-                    unlink(file_path);
-                }
+                unlink(new_inactive[i].file_path);
+                unlink(merge_hintfiles[i].file_path);
                 if (i != current_merge_file)
                 {
                     datafile_close(&new_inactive[i]);
@@ -1037,26 +902,24 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             }
             datafile_close(&tmp);
             free(new_inactive);
+            free(merge_hintfiles);
             return false;
         }
     };
 
     // atomically swap/remove
     // first, rename
-    char new_file_path[path_max], new_hint_path[path_max];
-
-    uint32_t hints[current_merge_file + 1];
+    char *new_file_path, *new_hint_path;
 
     for (size_t i = 0; i < current_merge_file + 1; i++)
     {
-        if (!build_file_path(bitcask->dir_path, ".data.merge", new_inactive[i].file_id, file_path, path_max))
+        new_file_path = strdup(new_inactive[i].file_path);
+        new_file_path[strlen(new_file_path) - 6] = '\0';
+        if (rename(new_inactive[i].file_path, new_file_path) != 0)
         {
             for (size_t i = 0; i < current_merge_file + 1; i++)
             {
-                if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                {
-                    unlink(file_path);
-                }
+                unlink(new_inactive[i].file_path);
                 datafile_close(&new_inactive[i]);
             }
             datafile_close(&tmp);
@@ -1064,76 +927,16 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             return false;
         }
 
-        if (!build_file_path(bitcask->dir_path, ".hint.merge", new_inactive[i].file_id, hint_path, path_max))
+        new_hint_path = strdup(merge_hintfiles[i].file_path);
+        new_hint_path[strlen(new_hint_path) - 6] = '\0';
+        if (rename(merge_hintfiles[i].file_path, new_hint_path) != 0)
         {
             for (size_t i = 0; i < current_merge_file + 1; i++)
             {
-                if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                {
-                    unlink(hint_path);
-                }
+                unlink(merge_hintfiles[i].file_path);
             }
             return false;
         }
-
-        if (!build_file_path(bitcask->dir_path, ".data", new_inactive[i].file_id, new_file_path, path_max))
-        {
-            for (size_t i = 0; i < current_merge_file + 1; i++)
-            {
-                if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                {
-                    unlink(file_path);
-                }
-                datafile_close(&new_inactive[i]);
-            }
-            datafile_close(&tmp);
-            free(new_inactive);
-            return false;
-        }
-
-        if (!build_file_path(bitcask->dir_path, ".hint", new_inactive[i].file_id, new_hint_path, path_max))
-        {
-            for (size_t i = 0; i < current_merge_file + 1; i++)
-            {
-                if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                {
-                    unlink(hint_path);
-                }
-            }
-            return false;
-        }
-
-        // here: so same as above for hintfile
-
-        if (rename(file_path, new_file_path) != 0)
-        {
-            for (size_t i = 0; i < current_merge_file + 1; i++)
-            {
-                if (build_file_path(bitcask->dir_path, ".data.merge", bitcask->next_file_id + i, file_path, path_max))
-                {
-                    unlink(file_path);
-                }
-                datafile_close(&new_inactive[i]);
-            }
-            datafile_close(&tmp);
-            free(new_inactive);
-            return false;
-        }
-
-        if (rename(hint_path, new_hint_path) != 0)
-        {
-            for (size_t i = 0; i < current_merge_file + 1; i++)
-            {
-                if (build_file_path(bitcask->dir_path, ".hint.merge", bitcask->next_file_id + i, hint_path, path_max))
-                {
-                    unlink(hint_path);
-                }
-            }
-            return false;
-        }
-
-        // add hint id to array
-        hints[i] = new_inactive[i].file_id;
     }
 
     // swap inactives, unlink, free old
@@ -1146,34 +949,25 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
 
     for (size_t i = 0; i < old_inactive_count; i++)
     {
-        if (build_file_path(bitcask->dir_path, ".data", old_inactive[i].file_id, file_path, path_max))
-        {
-            (void)unlink(file_path);
-        }
-        if (build_file_path(bitcask->dir_path, ".hint", old_inactive[i].file_id, hint_path, path_max))
-        {
-            (void)unlink(hint_path);
-        }
+        (void)unlink(old_inactive[i].file_path);
+        // do need to build old hintfile path here
+        //(void)unlink(hint_path);
 
-        // here: unlink old hintfiles
         datafile_close(&old_inactive[i]);
     }
     free(old_inactive);
-
-    size_t cur_hint = 0;
 
     // for now just rebuild keydir
     for (size_t i = 0; i < bitcask->inactive_count; i++)
     {
         // need to add check for num of hint files
         // but should be equal to inactive_count here
-        if (bitcask->inactive_files[i].file_id == hints[cur_hint])
+        if (bitcask->inactive_files[i].file_id == merge_hintfiles[i].file_id)
         {
-            if (!populate_keydir_from_hint(hints[cur_hint], bitcask))
+            if (!populate_keydir_from_hint(merge_hintfiles[i].file_id, bitcask))
             {
                 return false;
             }
-            cur_hint++;
         }
         else if (!populate_keydir(&bitcask->inactive_files[i], &bitcask->keydir))
         {
@@ -1182,6 +976,12 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
     }
 
     bitcask->next_file_id += (current_merge_file + 1);
+
+    for (size_t i = 0; i < bitcask->inactive_count; i++)
+    {
+        free((void *)merge_hintfiles[i].file_path);
+    }
+    free(merge_hintfiles);
 
     return true;
 }

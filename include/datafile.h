@@ -23,12 +23,16 @@ typedef struct datafile
     uint32_t file_id;
     off_t write_offset;
     datafile_mode_t mode;
+    char *file_path;
 } datafile_t;
 
 void datafile_init(datafile_t *datafile);
 
-bool datafile_open(datafile_t *datafile, const char *path,
+bool datafile_open(datafile_t *datafile, const char *dir_path,
                    uint32_t file_id, datafile_mode_t mode);
+
+bool datafile_open_merge(datafile_t *datafile, const char *dir_path,
+                         uint32_t file_id, datafile_mode_t mode);
 
 void datafile_close(datafile_t *datafile);
 

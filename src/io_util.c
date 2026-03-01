@@ -1,6 +1,9 @@
 #include "../include/io_util.h"
 #include "../include/entry.h"
 #include <errno.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
@@ -140,6 +143,21 @@ bool write_hint_exact(int fd, const uint8_t *header, const uint8_t *key, size_t 
             iov[cur].iov_base = (uint8_t *)iov[cur].iov_base + written;
             iov[cur].iov_len -= written;
         }
+    }
+
+    return true;
+}
+
+bool build_file_path(const char *dir_path, const char *suffix, uint32_t file_id, char *out, size_t out_size)
+{
+    int dir_len = strlen(dir_path);
+    bool has_slash = (dir_len > 0 && dir_path[dir_len - 1] == '/');
+
+    int path_n = snprintf(out, out_size, "%s%s%02" PRIu32 "%s", dir_path,
+                          has_slash ? "" : "/", file_id, suffix);
+    if (path_n < 0 || (size_t)path_n >= out_size)
+    {
+        return false;
     }
 
     return true;

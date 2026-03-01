@@ -3,6 +3,8 @@
 #include "../include/entry.h"
 #include "../include/io_util.h"
 #include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -12,11 +14,18 @@ void datafile_init(datafile_t *datafile)
     datafile->file_id = 0;
     datafile->write_offset = 0;
     datafile->mode = DATAFILE_READ;
+    datafile->file_path = NULL;
 }
 
-bool datafile_open(datafile_t *datafile, const char *path,
-                   uint32_t file_id, datafile_mode_t mode)
+static bool datafile_open_suffix(const char *suffix, datafile_t *datafile, const char *dir_path,
+                                 uint32_t file_id, datafile_mode_t mode)
 {
+    char path[MAX_PATH_LEN];
+    if (!build_file_path(dir_path, suffix, file_id, path, MAX_PATH_LEN))
+    {
+        return false;
+    }
+
     int flags = (mode == DATAFILE_READ) ? O_RDONLY : (O_RDWR | O_CREAT);
     int fd = open(path, flags, 0644);
     if (fd < 0)
@@ -40,7 +49,20 @@ bool datafile_open(datafile_t *datafile, const char *path,
     datafile->file_id = file_id;
     datafile->write_offset = st.st_size;
     datafile->mode = mode;
+    datafile->file_path = strdup(path); // should check this return value
     return true;
+}
+
+bool datafile_open(datafile_t *datafile, const char *dir_path,
+                   uint32_t file_id, datafile_mode_t mode)
+{
+    return datafile_open_suffix(".data", datafile, dir_path, file_id, mode);
+}
+
+bool datafile_open_merge(datafile_t *datafile, const char *dir_path,
+                         uint32_t file_id, datafile_mode_t mode)
+{
+    return datafile_open_suffix(".data.merge", datafile, dir_path, file_id, mode);
 }
 
 void datafile_close(datafile_t *datafile)
@@ -48,6 +70,10 @@ void datafile_close(datafile_t *datafile)
     if (datafile->fd != -1)
     {
         close(datafile->fd);
+    }
+    if (datafile->file_path != NULL)
+    {
+        free((void *)datafile->file_path);
     }
     datafile_init(datafile);
 }

@@ -166,7 +166,7 @@ static bool seed_datafile(const char *dir, uint32_t file_id,
 
     datafile_t file;
     datafile_init(&file);
-    if (!datafile_open(&file, path, file_id, DATAFILE_READ_WRITE))
+    if (!datafile_open(&file, dir, file_id, DATAFILE_READ_WRITE))
     {
         return false;
     }
