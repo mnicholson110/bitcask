@@ -6,7 +6,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -709,24 +708,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             entry_header_decode(&header, hdr_buf);
 
             uint32_t remaining_payload = remaining - ENTRY_HEADER_SIZE;
-            if (header.key_size > remaining_payload)
-            {
-                for (size_t i = 0; i < current_merge_file + 1; i++)
-                {
-                    unlink(new_inactive[i].file_path);
-                    unlink(merge_hintfiles[i].file_path);
-                    if (i != current_merge_file)
-                    {
-                        datafile_close(&new_inactive[i]);
-                    }
-                }
-                free(new_inactive);
-                free(merge_hintfiles);
-                datafile_close(&tmp);
-                hintfile_close(&hint);
-                return false;
-            }
-            if (header.value_size > (remaining_payload - header.key_size))
+            if (header.key_size > remaining_payload || header.value_size > (remaining_payload - header.key_size))
             {
                 for (size_t i = 0; i < current_merge_file + 1; i++)
                 {
@@ -861,10 +843,8 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
                 return false;
             }
 
-            uint8_t value_pos[sizeof(uint32_t)];
-            encode_u32_le(value_pos, tmp.write_offset - header.value_size);
-            write_hint_exact(hint.fd, hdr_buf, key, header.key_size, value_pos, hint.write_offset);
-            hint.write_offset += (ENTRY_HEADER_SIZE - ENTRY_HEADER_TIMESTAMP_OFFSET) + sizeof(uint32_t) + header.key_size;
+            // need to check this
+            hintfile_append(&hint, hdr_buf, key, header.key_size, tmp.write_offset - header.value_size);
 
             free(key);
             offset += header.value_size;

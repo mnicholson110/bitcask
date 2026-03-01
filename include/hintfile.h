@@ -28,11 +28,9 @@ void hintfile_close(hintfile_t *hintfile);
 bool hintfile_sync(hintfile_t *hintfile);
 
 // Appends one entry and returns keydir_value_t the value
-bool hintfile_append(hintfile_t *hintfile,
-                     uint64_t timestamp,
+bool hintfile_append(hintfile_t *hintfile, const uint8_t *header,
                      const uint8_t *key, uint32_t key_size,
-                     const uint8_t *value, uint32_t value_size,
-                     keydir_value_t *out_keydir_value);
+                     size_t value_pos);
 
 bool hintfile_read_at(const hintfile_t *hintfile,
                       off_t offset,
