@@ -628,22 +628,6 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
         return false;
     }
 
-    // open a temp datafile/hintfile to write to
-    datafile_t tmp;
-    hintfile_t hint;
-    datafile_init(&tmp);
-    hintfile_init(&hint);
-
-    if (!datafile_open_merge(&tmp, bitcask->dir_path, bitcask->next_file_id, DATAFILE_READ_WRITE))
-    {
-        return false;
-    };
-    if (!hintfile_open_merge(&hint, bitcask->dir_path, bitcask->next_file_id))
-    {
-        datafile_delete(&tmp);
-        return false;
-    };
-
     // bitcask->inactive_capacity is safe size because
     // worst-case scenario is 0 merging, meaning
     // each file is simply copied as-is
@@ -651,12 +635,28 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
     hintfile_t *merge_hintfiles = malloc(sizeof(hintfile_t) * bitcask->inactive_capacity);
     if (new_inactive == NULL || merge_hintfiles == NULL)
     {
-        datafile_delete(&tmp);
-        hintfile_delete(&hint);
+        if (new_inactive != NULL)
+        {
+            free(new_inactive);
+        }
+        if (merge_hintfiles != NULL)
+        {
+            free(merge_hintfiles);
+        }
         return false;
     }
 
-    size_t current_merge_file = 0;
+    size_t merge_idx = 0;
+
+    if (!datafile_open_merge(&new_inactive[merge_idx], bitcask->dir_path, bitcask->next_file_id, DATAFILE_READ_WRITE))
+    {
+        return false;
+    };
+    if (!hintfile_open_merge(&merge_hintfiles[merge_idx], bitcask->dir_path, bitcask->next_file_id))
+    {
+        datafile_delete(&new_inactive[merge_idx]);
+        return false;
+    };
 
     // iterate over inactive files
     for (size_t i = 0; i < bitcask->inactive_count; i++)
@@ -666,42 +666,47 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
 
         while (offset < cur->write_offset)
         {
-            uint32_t remaining = (cur->write_offset - offset);
-            if (remaining < ENTRY_HEADER_SIZE)
-            {
-                // cleanup
-                return false;
-            }
-
             entry_header_t header;
             uint8_t hdr_buf[ENTRY_HEADER_SIZE];
             if (!datafile_read_at(cur, offset, ENTRY_HEADER_SIZE, hdr_buf))
             {
-                // cleanup
+                for (size_t j = 0; j <= merge_idx; j++)
+                {
+                    datafile_delete(&new_inactive[j]);
+                    hintfile_delete(&merge_hintfiles[j]);
+                }
+                free(new_inactive);
+                free(merge_hintfiles);
                 return false;
             }
 
             entry_header_decode(&header, hdr_buf);
-
-            uint32_t remaining_payload = remaining - ENTRY_HEADER_SIZE;
-            if (header.key_size > remaining_payload || header.value_size > (remaining_payload - header.key_size))
-            {
-                // cleanup
-                return false;
-            }
 
             offset += ENTRY_HEADER_SIZE;
 
             uint8_t *key = malloc(header.key_size);
             if (key == NULL)
             {
-                // cleanup
+                for (size_t j = 0; j <= merge_idx; j++)
+                {
+                    datafile_delete(&new_inactive[j]);
+                    hintfile_delete(&merge_hintfiles[j]);
+                }
+                free(new_inactive);
+                free(merge_hintfiles);
                 return false;
             }
 
             if (!datafile_read_at(cur, offset, header.key_size, key))
             {
-                // cleanup
+                for (size_t j = 0; j <= merge_idx; j++)
+                {
+                    datafile_delete(&new_inactive[j]);
+                    hintfile_delete(&merge_hintfiles[j]);
+                }
+                free(new_inactive);
+                free(merge_hintfiles);
+                free(key);
                 return false;
             }
 
@@ -717,39 +722,59 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             }
 
             // rotation
-            if ((size_t)tmp.write_offset > MAX_FILE_SIZE - ENTRY_HEADER_SIZE - header.key_size - header.value_size)
+            if ((size_t)new_inactive[merge_idx].write_offset > MAX_FILE_SIZE - ENTRY_HEADER_SIZE - header.key_size - header.value_size)
             {
-                datafile_close(&tmp);
-                hintfile_close(&hint);
-                if (!datafile_open_merge(&new_inactive[current_merge_file], bitcask->dir_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ) ||
-                    !hintfile_open_merge(&merge_hintfiles[current_merge_file], bitcask->dir_path, bitcask->next_file_id + current_merge_file))
+                // close active data + hint
+                datafile_close(&new_inactive[merge_idx]);
+                hintfile_close(&merge_hintfiles[merge_idx]);
+
+                // reopen data (read-only)
+                if (!datafile_open_merge(&new_inactive[merge_idx], bitcask->dir_path, bitcask->next_file_id + merge_idx, DATAFILE_READ))
                 {
                     // cleanup
                     return false;
-                };
+                }
 
-                // these are redundant. called in _close()
-                // hintfile_init(&hint);
-                // datafile_init(&tmp);
-                current_merge_file++;
-                if (!datafile_open_merge(&tmp, bitcask->dir_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ_WRITE) ||
-                    !hintfile_open_merge(&hint, bitcask->dir_path, bitcask->next_file_id + current_merge_file))
+                // move to next inx
+                merge_idx++;
+
+                // open new data + hint
+                if (!datafile_open_merge(&new_inactive[merge_idx], bitcask->dir_path, bitcask->next_file_id + merge_idx, DATAFILE_READ_WRITE))
+                {
+                    // cleanup
+                    return false;
+                }
+
+                if (!hintfile_open_merge(&merge_hintfiles[merge_idx], bitcask->dir_path, bitcask->next_file_id + merge_idx))
                 {
                     // cleanup
                     return false;
                 };
             }
 
-            if (!datafile_copy_entry(cur, &tmp, offset - header.key_size - ENTRY_HEADER_SIZE, ENTRY_HEADER_SIZE + header.key_size + header.value_size))
+            if (!datafile_copy_entry(cur, &new_inactive[merge_idx], offset - header.key_size - ENTRY_HEADER_SIZE, ENTRY_HEADER_SIZE + header.key_size + header.value_size))
             {
-                // cleanup
+                for (size_t j = 0; j <= merge_idx; j++)
+                {
+                    datafile_delete(&new_inactive[j]);
+                    hintfile_delete(&merge_hintfiles[j]);
+                }
+                free(new_inactive);
+                free(merge_hintfiles);
+                free(key);
                 return false;
             }
 
-            // need to check this
-            if (!hintfile_append(&hint, header.timestamp, header.key_size, header.value_size, tmp.write_offset - header.value_size, key))
+            if (!hintfile_append(&merge_hintfiles[merge_idx], header.timestamp, header.key_size, header.value_size, new_inactive[merge_idx].write_offset - header.value_size, key))
             {
-                // cleanup
+                for (size_t j = 0; j <= merge_idx; j++)
+                {
+                    datafile_delete(&new_inactive[j]);
+                    hintfile_delete(&merge_hintfiles[j]);
+                }
+                free(new_inactive);
+                free(merge_hintfiles);
+                free(key);
                 return false;
             }
 
@@ -758,50 +783,75 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
         }
     }
 
-    // seal final file or remove if empty
-    if (tmp.write_offset == 0)
+    // close existing datafile, reopen as read-only
+    datafile_close(&new_inactive[merge_idx]);
+    if (!datafile_open_merge(&new_inactive[merge_idx], bitcask->dir_path, bitcask->next_file_id + merge_idx, DATAFILE_READ))
     {
-        datafile_delete(&tmp);
-        hintfile_delete(&hint);
-        if (current_merge_file > 0)
+        for (size_t i = 0; i <= merge_idx; i++)
         {
-            current_merge_file--;
+            datafile_delete(&new_inactive[i]);
+            hintfile_delete(&merge_hintfiles[i]);
         }
+        free(new_inactive);
+        free(merge_hintfiles);
+        return false;
     }
-    else
-    {
-        datafile_close(&tmp);
-        hintfile_close(&hint);
 
-        if (!datafile_open_merge(&new_inactive[current_merge_file], bitcask->dir_path, bitcask->next_file_id + current_merge_file, DATAFILE_READ) ||
-            !hintfile_open_merge(&merge_hintfiles[current_merge_file], bitcask->dir_path, bitcask->next_file_id + current_merge_file))
+    if (new_inactive[merge_idx].write_offset == 0)
+    {
+        datafile_delete(&new_inactive[merge_idx]);
+        hintfile_delete(&merge_hintfiles[merge_idx]);
+        if (merge_idx == 0)
         {
-            // cleanup
-            return false;
+            free(new_inactive);
+            free(merge_hintfiles);
+            return true;
         }
-    };
+        merge_idx--;
+    }
 
     // atomically swap/remove
     // first, rename
-    char *new_file_path, *new_hint_path;
+    char *new_file_path = NULL;
+    char *new_hint_path = NULL;
 
-    for (size_t i = 0; i < current_merge_file + 1; i++)
+    for (size_t i = 0; i <= merge_idx; i++)
     {
         new_file_path = strdup(new_inactive[i].file_path);
+        // check strdup call
         new_file_path[strlen(new_file_path) - 6] = '\0';
         if (rename(new_inactive[i].file_path, new_file_path) != 0)
         {
-            // cleanup
+            for (size_t j = 0; j <= merge_idx; j++)
+            {
+                datafile_delete(&new_inactive[j]);
+                hintfile_delete(&merge_hintfiles[j]);
+            }
+            free(new_file_path);
+            free(new_inactive);
+            free(merge_hintfiles);
             return false;
         }
+        new_inactive[i].file_path[strlen(new_inactive[i].file_path) - 6] = '\0';
+        free(new_file_path);
 
         new_hint_path = strdup(merge_hintfiles[i].file_path);
+        // check strdup call
         new_hint_path[strlen(new_hint_path) - 6] = '\0';
         if (rename(merge_hintfiles[i].file_path, new_hint_path) != 0)
         {
-            // cleanup
+            for (size_t j = 0; j <= merge_idx; j++)
+            {
+                datafile_delete(&new_inactive[j]);
+                hintfile_delete(&merge_hintfiles[j]);
+            }
+            free(new_hint_path);
+            free(new_inactive);
+            free(merge_hintfiles);
             return false;
         }
+        merge_hintfiles[i].file_path[strlen(merge_hintfiles[i].file_path) - 6] = '\0';
+        free(new_hint_path);
     }
 
     // swap inactives, free old
@@ -810,7 +860,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
     size_t old_inactive_count = bitcask->inactive_count;
 
     bitcask->inactive_files = new_inactive;
-    bitcask->inactive_count = current_merge_file + 1;
+    bitcask->inactive_count = merge_idx + 1;
 
     for (size_t i = 0; i < old_inactive_count; i++)
     {
@@ -827,11 +877,21 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
         {
             if (!populate_keydir_from_hint(merge_hintfiles[i].file_id, bitcask))
             {
+                for (size_t i = 0; i < bitcask->inactive_count; i++)
+                {
+                    hintfile_close(&merge_hintfiles[i]);
+                }
+                free(merge_hintfiles);
                 return false;
             }
         }
         else if (!populate_keydir(&bitcask->inactive_files[i], &bitcask->keydir))
         {
+            for (size_t i = 0; i < bitcask->inactive_count; i++)
+            {
+                hintfile_close(&merge_hintfiles[i]);
+            }
+            free(merge_hintfiles);
             return false;
         }
     }
@@ -842,6 +902,6 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
     }
     free(merge_hintfiles);
 
-    bitcask->next_file_id += (current_merge_file + 1);
+    bitcask->next_file_id += (merge_idx + 1);
     return true;
 }
