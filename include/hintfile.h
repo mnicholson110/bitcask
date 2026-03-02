@@ -25,6 +25,8 @@ bool hintfile_open_merge(hintfile_t *hintfile, const char *dir_path,
 
 void hintfile_close(hintfile_t *hintfile);
 
+void hintfile_delete(hintfile_t *hintfile);
+
 bool hintfile_sync(hintfile_t *hintfile);
 
 bool hintfile_append(hintfile_t *hintfile, uint64_t timestamp,

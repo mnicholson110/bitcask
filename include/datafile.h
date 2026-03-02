@@ -36,6 +36,8 @@ bool datafile_open_merge(datafile_t *datafile, const char *dir_path,
 
 void datafile_close(datafile_t *datafile);
 
+void datafile_delete(datafile_t *datafile);
+
 bool datafile_sync(datafile_t *datafile);
 
 // Appends one entry and returns keydir_value_t the value

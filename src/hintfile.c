@@ -75,6 +75,12 @@ void hintfile_close(hintfile_t *hintfile)
     hintfile_init(hintfile);
 }
 
+void hintfile_delete(hintfile_t *hintfile)
+{
+    unlink(hintfile->file_path);
+    hintfile_close(hintfile);
+}
+
 bool hintfile_sync(hintfile_t *hintfile)
 {
     if (hintfile->fd == -1)

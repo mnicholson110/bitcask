@@ -78,6 +78,12 @@ void datafile_close(datafile_t *datafile)
     datafile_init(datafile);
 }
 
+void datafile_delete(datafile_t *datafile)
+{
+    unlink(datafile->file_path);
+    datafile_close(datafile);
+}
+
 bool datafile_sync(datafile_t *datafile)
 {
     if (datafile->fd == -1)
