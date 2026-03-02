@@ -724,9 +724,8 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             // rotation
             if ((size_t)new_inactive[merge_idx].write_offset > MAX_FILE_SIZE - ENTRY_HEADER_SIZE - header.key_size - header.value_size)
             {
-                // close active data + hint
+                // close active data
                 datafile_close(&new_inactive[merge_idx]);
-                hintfile_close(&merge_hintfiles[merge_idx]);
 
                 // reopen data (read-only)
                 if (!datafile_open_merge(&new_inactive[merge_idx], bitcask->dir_path, bitcask->next_file_id + merge_idx, DATAFILE_READ))
@@ -735,7 +734,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
                     return false;
                 }
 
-                // move to next inx
+                // move to next idx
                 merge_idx++;
 
                 // open new data + hint
