@@ -1,4 +1,5 @@
 #include "../include/entry.h"
+#include "../include/io_util.h"
 
 void entry_header_encode(uint8_t out[ENTRY_HEADER_SIZE],
                          uint32_t crc, uint64_t timestamp,

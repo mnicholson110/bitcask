@@ -1,10 +1,10 @@
 #ifndef bitcask_hintfile_h
 #define bitcask_hintfile_h
 
-#include "keydir.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <sys/types.h>
 
 typedef struct hintfile
@@ -27,16 +27,13 @@ void hintfile_close(hintfile_t *hintfile);
 
 bool hintfile_sync(hintfile_t *hintfile);
 
-// Appends one entry and returns keydir_value_t the value
-bool hintfile_append(hintfile_t *hintfile, const uint8_t *header,
-                     const uint8_t *key, uint32_t key_size,
-                     size_t value_pos);
+bool hintfile_append(hintfile_t *hintfile, uint64_t timestamp,
+                     uint32_t key_size, uint32_t value_size,
+                     off_t value_pos, const uint8_t *key);
 
 bool hintfile_read_at(const hintfile_t *hintfile,
                       off_t offset,
                       uint32_t size,
                       uint8_t *out);
-
-bool hintfile_copy_entry(hintfile_t *src, hintfile_t *dest, off_t src_offset, size_t entry_size);
 
 #endif

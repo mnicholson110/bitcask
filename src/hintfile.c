@@ -1,6 +1,5 @@
-
 #include "../include/hintfile.h"
-#include "../include/entry.h"
+#include "../include/hint.h"
 #include "../include/io_util.h"
 #include <fcntl.h>
 #include <stdlib.h>
@@ -91,18 +90,27 @@ bool hintfile_sync(hintfile_t *hintfile)
     return true;
 }
 
-bool hintfile_append(hintfile_t *hintfile, const uint8_t *header,
-                     const uint8_t *key, uint32_t key_size,
-                     size_t value_pos)
+bool hintfile_append(hintfile_t *hintfile, uint64_t timestamp,
+                     uint32_t key_size, uint32_t value_size,
+                     off_t value_pos, const uint8_t *key)
 {
-    uint8_t value_pos_buf[sizeof(uint32_t)];
-    encode_u32_le(value_pos_buf, value_pos);
-    if (!write_hint_exact(hintfile->fd, header, key, key_size,
-                          value_pos_buf, hintfile->write_offset))
+
+    if (hintfile->fd == -1)
     {
         return false;
     }
-    hintfile->write_offset += (ENTRY_HEADER_SIZE - ENTRY_HEADER_TIMESTAMP_OFFSET) + sizeof(uint32_t) + key_size;
+
+    // encode header values
+    uint8_t header[HINT_HEADER_SIZE];
+    hint_header_encode(header, timestamp, key_size, value_size, value_pos);
+
+    if (!write_hint_exact(hintfile->fd, header, key, key_size, hintfile->write_offset))
+    {
+        return false;
+    }
+
+    hintfile->write_offset += (HINT_HEADER_SIZE + key_size);
+
     return true;
 }
 

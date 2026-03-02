@@ -844,7 +844,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
             }
 
             // need to check this
-            hintfile_append(&hint, hdr_buf, key, header.key_size, tmp.write_offset - header.value_size);
+            hintfile_append(&hint, header.timestamp, header.key_size, header.value_size, tmp.write_offset - header.value_size, key);
 
             free(key);
             offset += header.value_size;

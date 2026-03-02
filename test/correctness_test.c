@@ -1,12 +1,13 @@
 #include "../include/bitcask.h"
 #include "../include/entry.h"
+#include "../include/io_util.h"
 
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
