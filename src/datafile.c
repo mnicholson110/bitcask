@@ -80,7 +80,10 @@ void datafile_close(datafile_t *datafile)
 
 void datafile_delete(datafile_t *datafile)
 {
-    unlink(datafile->file_path);
+    if (datafile->file_path != NULL)
+    {
+        unlink(datafile->file_path);
+    }
     datafile_close(datafile);
 }
 

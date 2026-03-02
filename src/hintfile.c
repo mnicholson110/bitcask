@@ -77,7 +77,10 @@ void hintfile_close(hintfile_t *hintfile)
 
 void hintfile_delete(hintfile_t *hintfile)
 {
-    unlink(hintfile->file_path);
+    if (hintfile->file_path != NULL)
+    {
+        unlink(hintfile->file_path);
+    }
     hintfile_close(hintfile);
 }
 
