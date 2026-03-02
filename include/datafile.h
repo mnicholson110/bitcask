@@ -7,9 +7,9 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-#define MAX_FILE_SIZE ((size_t)(256 * 1024 * 1024)) // .25 GiB
-#define MAX_KEY_SIZE ((size_t)(1024 * 1024))        // 1 MiB
-#define MAX_VALUE_SIZE ((size_t)(10 * 1024 * 1024)) // 10 MiB
+#define MAX_FILE_SIZE ((size_t)(1024 * 1024 * 1024)) // 1 GiB
+#define MAX_KEY_SIZE ((size_t)(1024 * 1024))         // 1 MiB
+#define MAX_VALUE_SIZE ((size_t)(10 * 1024 * 1024))  // 10 MiB
 
 typedef enum datafile_mode
 {
