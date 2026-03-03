@@ -55,6 +55,10 @@ static bool cleanup_test_dirs(void)
         "test/test-merge-hint-values",
         "test/test-merge-readonly",
         "test/test-merge-no-inactive",
+        "test/test-lock-lifecycle",
+        "test/test-lock-single-writer",
+        "test/test-lock-ro-coexist",
+        "test/test-lock-stale-file",
         "test/bench-seq",
         "test/bench-mixed",
     };
@@ -149,6 +153,16 @@ static bool build_datafile_path(const char *dir, uint32_t file_id, const char *s
                                 char *out, size_t out_size)
 {
     int n = snprintf(out, out_size, "%s/%02u%s", dir, (unsigned)file_id, suffix);
+    if (n < 0 || (size_t)n >= out_size)
+    {
+        return false;
+    }
+    return true;
+}
+
+static bool build_lockfile_path(const char *dir, char *out, size_t out_size)
+{
+    int n = snprintf(out, out_size, "%s/dir.lock", dir);
     if (n < 0 || (size_t)n >= out_size)
     {
         return false;
@@ -1109,6 +1123,168 @@ static bool test_read_only_semantics(void)
     return true;
 }
 
+static bool test_lock_lifecycle_rw_open_close(void)
+{
+    const char *dir = "test/test-lock-lifecycle";
+    char lock_path[512];
+    if (!build_lockfile_path(dir, lock_path, sizeof(lock_path)))
+    {
+        return false;
+    }
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+
+    bitcask_handle_t db;
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+    if (!path_exists(lock_path))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+
+    bitcask_close(&db);
+    return !path_exists(lock_path);
+}
+
+static bool test_lock_single_writer_enforced(void)
+{
+    const char *dir = "test/test-lock-single-writer";
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+
+    bitcask_handle_t db1;
+    if (!bitcask_open(&db1, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+
+    bitcask_handle_t db2;
+    if (bitcask_open(&db2, dir, BITCASK_READ_WRITE))
+    {
+        bitcask_close(&db2);
+        bitcask_close(&db1);
+        return false;
+    }
+
+    bitcask_close(&db1);
+
+    if (!bitcask_open(&db2, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+    bitcask_close(&db2);
+    return true;
+}
+
+static bool test_lock_read_only_does_not_unlock_writer(void)
+{
+    const char *dir = "test/test-lock-ro-coexist";
+    char lock_path[512];
+    if (!build_lockfile_path(dir, lock_path, sizeof(lock_path)))
+    {
+        return false;
+    }
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+
+    bitcask_handle_t writer;
+    if (!bitcask_open(&writer, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+
+    if (!bitcask_put(&writer, (const uint8_t *)"k", 1, (const uint8_t *)"v", 1))
+    {
+        bitcask_close(&writer);
+        return false;
+    }
+    if (!path_exists(lock_path))
+    {
+        bitcask_close(&writer);
+        return false;
+    }
+
+    bitcask_handle_t reader;
+    if (!bitcask_open(&reader, dir, BITCASK_READ_ONLY))
+    {
+        bitcask_close(&writer);
+        return false;
+    }
+    bitcask_close(&reader);
+
+    if (!path_exists(lock_path))
+    {
+        bitcask_close(&writer);
+        return false;
+    }
+
+    bitcask_handle_t writer2;
+    if (bitcask_open(&writer2, dir, BITCASK_READ_WRITE))
+    {
+        bitcask_close(&writer2);
+        bitcask_close(&writer);
+        return false;
+    }
+
+    bitcask_close(&writer);
+    if (path_exists(lock_path))
+    {
+        return false;
+    }
+
+    if (!bitcask_open(&writer2, dir, BITCASK_READ_WRITE))
+    {
+        return false;
+    }
+    bitcask_close(&writer2);
+    return true;
+}
+
+static bool test_lockfile_blocks_rw_open(void)
+{
+    const char *dir = "test/test-lock-stale-file";
+    char lock_path[512];
+    if (!build_lockfile_path(dir, lock_path, sizeof(lock_path)))
+    {
+        return false;
+    }
+    if (!rm_rf(dir))
+    {
+        return false;
+    }
+    if (mkdir(dir, 0755) != 0)
+    {
+        return false;
+    }
+
+    FILE *fp = fopen(lock_path, "wb");
+    if (fp == NULL)
+    {
+        return false;
+    }
+    if (fclose(fp) != 0)
+    {
+        return false;
+    }
+
+    bitcask_handle_t db;
+    if (bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    {
+        bitcask_close(&db);
+        return false;
+    }
+    return path_exists(lock_path);
+}
+
 static bool test_crc_not_checked_on_get(void)
 {
     const char *dir = "test/test-crc-get";
@@ -1522,6 +1698,10 @@ int main(void)
         {.name = "concurrent_readers", .fn = test_concurrent_readers},
         {.name = "reopen_persistence", .fn = test_reopen_persistence},
         {.name = "read_only_semantics", .fn = test_read_only_semantics},
+        {.name = "lock_lifecycle_rw_open_close", .fn = test_lock_lifecycle_rw_open_close},
+        {.name = "lock_single_writer_enforced", .fn = test_lock_single_writer_enforced},
+        {.name = "lock_read_only_does_not_unlock_writer", .fn = test_lock_read_only_does_not_unlock_writer},
+        {.name = "lockfile_blocks_rw_open", .fn = test_lockfile_blocks_rw_open},
         {.name = "crc_not_checked_on_get", .fn = test_crc_not_checked_on_get},
         {.name = "crc_rejected_on_reopen", .fn = test_crc_rejected_on_reopen},
         {.name = "merge_compacts_inactive_files", .fn = test_merge_compacts_inactive_files},

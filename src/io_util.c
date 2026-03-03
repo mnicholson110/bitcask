@@ -3,6 +3,7 @@
 #include "../include/hint.h"
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +17,18 @@ static int cmp_u32(const void *a, const void *b)
     uint32_t x = *(const uint32_t *)a;
     uint32_t y = *(const uint32_t *)b;
     return (x > y) - (x < y); // avoids overflow from subtraction
+}
+
+static bool build_lock_path(const char *dir_path, char *out, size_t out_size)
+{
+    size_t dir_len = strlen(dir_path);
+    bool has_slash = (dir_len > 0 && dir_path[dir_len - 1] == '/');
+    int path_n = snprintf(out, out_size, "%s%sdir.lock", dir_path, has_slash ? "" : "/");
+    if (path_n < 0 || (size_t)path_n >= out_size)
+    {
+        return false;
+    }
+    return true;
 }
 
 bool pread_exact(int fd, uint8_t *buf, size_t len, off_t offset)
@@ -198,76 +211,133 @@ static DIR *check_path(const char *dir_path, bool can_write)
     return opendir(dir_path);
 }
 
-static bool scan_files(DIR *dirp, uint32_t **ids, size_t *count, const char *suffix)
+static uint32_t parse_file_id(const char *file)
 {
-    // return an allocated list of file_ids
-    size_t limit = 20;
-    *ids = malloc(sizeof(uint32_t) * limit);
-    if (*ids == NULL)
+    char *end = NULL;
+    uint32_t id = strtoul(file, &end, 10);
+    if (end != file + strlen(file) - 5)
     {
-        return false;
+        return 0;
     }
-    struct dirent *dp;
-    while ((dp = readdir(dirp)) != NULL)
-    {
-        size_t name_len = strlen(dp->d_name);
-        size_t suffix_len = strlen(suffix);
-        if (name_len <= suffix_len)
-        {
-            continue;
-        }
-        if (strcmp(dp->d_name + name_len - suffix_len, suffix) != 0)
-        {
-            continue;
-        }
-        char *end = NULL;
-        uint32_t id = strtoul(dp->d_name, &end, 10);
-        if (end != dp->d_name + name_len - suffix_len)
-        {
-            continue;
-        }
-
-        (*ids)[*count] = id;
-        (*count)++;
-        if (*count >= limit)
-        {
-            limit *= 2;
-            void *tmp = realloc(*ids, sizeof(uint32_t) * limit);
-            if (tmp == NULL)
-            {
-                free(*ids);
-                return false;
-            }
-            *ids = tmp;
-        }
-    }
-
-    rewinddir(dirp);
-    return true;
+    return id;
 }
 
-bool scan_datafiles_and_hintfiles(const char *dir_path, bool can_write, uint32_t **ids, size_t *count, uint32_t **hints, size_t *hint_count)
+bool scan_dir(const char *dir_path, bool can_write, uint32_t **datafiles, size_t *count, uint32_t **hints, size_t *hint_count, bool *locked)
 {
     DIR *dirp = check_path(dir_path, can_write);
     if (dirp == NULL)
     {
         return false;
     }
-
-    if (!scan_files(dirp, ids, count, ".data"))
+    // return an allocated list of file_ids
+    size_t limit = 20;
+    *datafiles = malloc(sizeof(uint32_t) * limit);
+    *hints = malloc(sizeof(uint32_t) * limit);
+    if (*datafiles == NULL || *hints == NULL)
     {
+        free(*datafiles);
+        free(*hints);
         closedir(dirp);
         return false;
-    };
-    qsort(*ids, *count, sizeof(*ids[0]), cmp_u32);
+    }
 
-    if (!scan_files(dirp, hints, hint_count, ".hint"))
+    struct dirent *dp;
+    while ((dp = readdir(dirp)) != NULL)
     {
-        closedir(dirp);
-        return false;
-    };
+        size_t name_len = strlen(dp->d_name);
+        size_t suffix_len = 5; // .data, .hint, .lock
+        if (name_len <= suffix_len)
+        {
+            continue;
+        }
+
+        if (strcmp(dp->d_name + name_len - suffix_len, ".data") == 0)
+        {
+            uint32_t id = parse_file_id(dp->d_name);
+            if (id == 0)
+            {
+                continue;
+            }
+            (*datafiles)[*count] = id;
+            (*count)++;
+            if (*count >= limit)
+            {
+                limit *= 2;
+                void *tmp = realloc(*datafiles, sizeof(uint32_t) * limit);
+                void *tmp_hint = realloc(*hints, sizeof(uint32_t) * limit);
+                if (tmp == NULL || tmp_hint == NULL)
+                {
+                    free(*datafiles);
+                    free(*hints);
+                    closedir(dirp);
+                    return false;
+                }
+                *datafiles = tmp;
+                *hints = tmp_hint;
+            }
+        }
+        else if (strcmp(dp->d_name + name_len - suffix_len, ".hint") == 0)
+        {
+            uint32_t id = parse_file_id(dp->d_name);
+            if (id == 0)
+            {
+                continue;
+            }
+            (*hints)[*hint_count] = id;
+            (*hint_count)++;
+            if (*hint_count >= limit)
+            {
+                limit *= 2;
+                void *tmp = realloc(*datafiles, sizeof(uint32_t) * limit);
+                void *tmp_hint = realloc(*hints, sizeof(uint32_t) * limit);
+                if (tmp == NULL || tmp_hint == NULL)
+                {
+                    free(*datafiles);
+                    free(*hints);
+                    closedir(dirp);
+                    return false;
+                }
+                *datafiles = tmp;
+                *hints = tmp_hint;
+            }
+        }
+        else if (strcmp(dp->d_name, "dir.lock") == 0)
+        {
+            *locked = true;
+        }
+    }
+
+    qsort(*datafiles, *count, sizeof(*datafiles[0]), cmp_u32);
     qsort(*hints, *hint_count, sizeof(*hints[0]), cmp_u32);
-
     closedir(dirp);
     return true;
+}
+
+bool lock_dir(const char *dir_path)
+{
+    char lock_path[MAX_PATH_LEN];
+    if (!build_lock_path(dir_path, lock_path, sizeof(lock_path)))
+    {
+        return false;
+    }
+
+    int fd = open(lock_path, (O_WRONLY | O_CREAT | O_EXCL), 0644);
+    if (fd == -1)
+    {
+        return false;
+    }
+
+    close(fd);
+    return true;
+}
+
+void unlock_dir(const char *dir_path)
+{
+    char lock_path[MAX_PATH_LEN];
+    if (!build_lock_path(dir_path, lock_path, sizeof(lock_path)))
+    {
+        return;
+    }
+
+    (void)unlink(lock_path);
 }

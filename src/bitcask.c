@@ -67,14 +67,24 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path, uint8_t opts)
     bitcask->keydir.capacity = 0;
     bitcask->keydir.entries = NULL;
     bitcask->next_file_id = 0;
+    bitcask->has_write_lock = false;
     bitcask->opts = opts;
     datafile_init(&bitcask->active_file);
 
-    uint32_t *ids, *hints;
+    uint32_t *ids = NULL, *hints = NULL;
     size_t count = 0, hint_count = 0;
+    bool locked = false;
 
-    if (!scan_datafiles_and_hintfiles(dir_path, can_write(bitcask->opts), &ids, &count, &hints, &hint_count))
+    if (!scan_dir(dir_path, can_write(bitcask->opts), &ids, &count, &hints, &hint_count, &locked))
     {
+        if (ids != NULL)
+        {
+            free(ids);
+        }
+        if (hints != NULL)
+        {
+            free(hints);
+        }
         return false;
     }
 
@@ -85,11 +95,34 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path, uint8_t opts)
         return false;
     }
 
+    if (locked && can_write(opts))
+    {
+        // writer already open
+        free(ids);
+        free(hints);
+        return false;
+    }
+    else if (!locked && can_write(opts))
+    {
+        if (!lock_dir(dir_path))
+        {
+            free(ids);
+            free(hints);
+            return false;
+        }
+        bitcask->has_write_lock = true;
+    }
+
     // allocate enough space for the number of inactive files to double (+1)
     bitcask->inactive_capacity = count == 0 ? 2 : count * 2;
     bitcask->inactive_files = malloc(sizeof(datafile_t) * bitcask->inactive_capacity);
     if (bitcask->inactive_files == NULL)
     {
+        if (bitcask->has_write_lock)
+        {
+            unlock_dir(dir_path);
+            bitcask->has_write_lock = false;
+        }
         free(ids);
         free(hints);
         return false;
@@ -98,6 +131,11 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path, uint8_t opts)
     bitcask->dir_path = strdup(dir_path);
     if (bitcask->dir_path == NULL)
     {
+        if (bitcask->has_write_lock)
+        {
+            unlock_dir(dir_path);
+            bitcask->has_write_lock = false;
+        }
         free(ids);
         free(hints);
         bitcask_close(bitcask);
@@ -298,6 +336,10 @@ void bitcask_close(bitcask_handle_t *bitcask)
     }
     if (bitcask->dir_path != NULL)
     {
+        if (bitcask->has_write_lock)
+        {
+            unlock_dir(bitcask->dir_path);
+        }
         free(bitcask->dir_path);
         bitcask->dir_path = NULL;
     }

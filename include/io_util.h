@@ -18,7 +18,11 @@ bool write_hint_exact(int fd, const uint8_t *header, const uint8_t *key, size_t 
 
 bool build_file_path(const char *dir_path, const char *suffix, uint32_t file_id, char *out, size_t out_size);
 
-bool scan_datafiles_and_hintfiles(const char *dir_path, bool can_write, uint32_t **ids, size_t *count, uint32_t **hints, size_t *hint_count);
+bool scan_dir(const char *dir_path, bool can_write, uint32_t **datafiles, size_t *count, uint32_t **hints, size_t *hint_count, bool *locked);
+
+void unlock_dir(const char *dir_path);
+
+bool lock_dir(const char *dir_path);
 
 static inline void encode_u32_le(uint8_t *buf, uint32_t i)
 {
