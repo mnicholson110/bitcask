@@ -25,7 +25,7 @@ bitcask_merge(&db);
 bitcask_close(&db);
 ```
 
-Open with `BITCASK_READ_ONLY` for read-only access, or `BITCASK_SYNC_ON_PUT` to fsync after every write.
+Open with `BITCASK_READ_ONLY` for read-only access, or `BITCASK_SYNC_ON_PUT` to call `fsync` after every write.
 
 ## On-disk format
 
