@@ -1,9 +1,7 @@
 #include "../include/entry.h"
 #include "../include/io_util.h"
 
-void entry_header_encode(uint8_t out[ENTRY_HEADER_SIZE],
-                         uint32_t crc, uint64_t timestamp,
-                         uint32_t key_size, uint32_t value_size)
+void entry_header_encode(uint8_t out[ENTRY_HEADER_SIZE], uint32_t crc, uint64_t timestamp, uint32_t key_size, uint32_t value_size)
 {
     encode_u32_le(out + ENTRY_HEADER_CRC_OFFSET, crc);
     encode_u64_le(out + ENTRY_HEADER_TIMESTAMP_OFFSET, timestamp);

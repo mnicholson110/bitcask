@@ -70,8 +70,7 @@ bool pwrite_exact(int fd, uint8_t *buf, size_t len, off_t offset)
     return true;
 }
 
-bool write_entry_exact(int fd, const uint8_t *header, const uint8_t *key, size_t key_size,
-                       const uint8_t *value, size_t value_size, off_t offset)
+bool write_entry_exact(int fd, const uint8_t *header, const uint8_t *key, size_t key_size, const uint8_t *value, size_t value_size, off_t offset)
 {
     size_t done = 0;
     int cur = 0;
@@ -114,8 +113,7 @@ bool write_entry_exact(int fd, const uint8_t *header, const uint8_t *key, size_t
     return true;
 }
 
-bool write_hint_exact(int fd, const uint8_t *header, const uint8_t *key,
-                      size_t key_size, off_t offset)
+bool write_hint_exact(int fd, const uint8_t *header, const uint8_t *key, size_t key_size, off_t offset)
 {
     size_t done = 0;
     int cur = 0;
@@ -248,9 +246,7 @@ static bool scan_files(DIR *dirp, uint32_t **ids, size_t *count, const char *suf
     return true;
 }
 
-bool scan_datafiles_and_hintfiles(const char *dir_path, bool can_write,
-                                  uint32_t **ids, size_t *count,
-                                  uint32_t **hints, size_t *hint_count)
+bool scan_datafiles_and_hintfiles(const char *dir_path, bool can_write, uint32_t **ids, size_t *count, uint32_t **hints, size_t *hint_count)
 {
     DIR *dirp = check_path(dir_path, can_write);
     if (dirp == NULL)

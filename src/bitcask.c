@@ -54,8 +54,7 @@ static bool rotate_active_file(bitcask_handle_t *bitcask)
     return true;
 }
 
-bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
-                  uint8_t opts)
+bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path, uint8_t opts)
 {
     if ((opts & ~(BITCASK_READ_WRITE | BITCASK_SYNC_ON_PUT)) != 0)
     {
@@ -164,8 +163,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     return true;
 }
 
-bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
-                 size_t key_size, uint8_t **out, size_t *out_size)
+bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key, size_t key_size, uint8_t **out, size_t *out_size)
 {
     if (key_size == 0 || key_size > MAX_KEY_SIZE)
     {
@@ -219,8 +217,7 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
     return true;
 }
 
-bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key,
-                 size_t key_size, const uint8_t *value, size_t value_size)
+bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key, size_t key_size, const uint8_t *value, size_t value_size)
 {
     if (!can_write(bitcask->opts))
     {

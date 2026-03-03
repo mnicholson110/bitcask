@@ -28,11 +28,9 @@ typedef struct datafile
 
 void datafile_init(datafile_t *datafile);
 
-bool datafile_open(datafile_t *datafile, const char *dir_path,
-                   uint32_t file_id, datafile_mode_t mode);
+bool datafile_open(datafile_t *datafile, const char *dir_path, uint32_t file_id, datafile_mode_t mode);
 
-bool datafile_open_merge(datafile_t *datafile, const char *dir_path,
-                         uint32_t file_id, datafile_mode_t mode);
+bool datafile_open_merge(datafile_t *datafile, const char *dir_path, uint32_t file_id, datafile_mode_t mode);
 
 void datafile_close(datafile_t *datafile);
 
@@ -40,17 +38,9 @@ void datafile_delete(datafile_t *datafile);
 
 bool datafile_sync(datafile_t *datafile);
 
-// Appends one entry and returns keydir_value_t the value
-bool datafile_append(datafile_t *datafile,
-                     uint64_t timestamp,
-                     const uint8_t *key, uint32_t key_size,
-                     const uint8_t *value, uint32_t value_size,
-                     keydir_value_t *out_keydir_value);
+bool datafile_append(datafile_t *datafile, uint64_t timestamp, const uint8_t *key, uint32_t key_size, const uint8_t *value, uint32_t value_size, keydir_value_t *out_keydir_value);
 
-bool datafile_read_at(const datafile_t *datafile,
-                      off_t offset,
-                      uint32_t size,
-                      uint8_t *out);
+bool datafile_read_at(const datafile_t *datafile, off_t offset, uint32_t size, uint8_t *out);
 
 bool datafile_copy_entry(datafile_t *src, datafile_t *dest, off_t src_offset, size_t entry_size);
 

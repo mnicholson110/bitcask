@@ -1,9 +1,7 @@
 #include "../include/crc.h"
 #include "../include/io_util.h"
 
-bool crc32_validate(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZE],
-                    const uint8_t *key, uint32_t key_size,
-                    int fd, uint32_t value_pos, uint32_t value_size)
+bool crc32_validate(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZE], const uint8_t *key, uint32_t key_size, int fd, uint32_t value_pos, uint32_t value_size)
 {
     // compute crc
     uint32_t crc = crc_init();

@@ -15,8 +15,7 @@ void hintfile_init(hintfile_t *hintfile)
     hintfile->file_path = NULL;
 }
 
-static bool hintfile_open_suffix(const char *suffix, hintfile_t *hintfile, const char *dir_path,
-                                 uint32_t file_id)
+static bool hintfile_open_suffix(const char *suffix, hintfile_t *hintfile, const char *dir_path, uint32_t file_id)
 {
     char path[MAX_PATH_LEN];
     if (!build_file_path(dir_path, suffix, file_id, path, MAX_PATH_LEN))
@@ -50,14 +49,12 @@ static bool hintfile_open_suffix(const char *suffix, hintfile_t *hintfile, const
     return true;
 }
 
-bool hintfile_open(hintfile_t *hintfile, const char *dir_path,
-                   uint32_t file_id)
+bool hintfile_open(hintfile_t *hintfile, const char *dir_path, uint32_t file_id)
 {
     return hintfile_open_suffix(".hint", hintfile, dir_path, file_id);
 }
 
-bool hintfile_open_merge(hintfile_t *hintfile, const char *dir_path,
-                         uint32_t file_id)
+bool hintfile_open_merge(hintfile_t *hintfile, const char *dir_path, uint32_t file_id)
 {
     return hintfile_open_suffix(".hint.merge", hintfile, dir_path, file_id);
 }
@@ -99,9 +96,7 @@ bool hintfile_sync(hintfile_t *hintfile)
     return true;
 }
 
-bool hintfile_append(hintfile_t *hintfile, uint64_t timestamp,
-                     uint32_t key_size, uint32_t value_size,
-                     off_t value_pos, const uint8_t *key)
+bool hintfile_append(hintfile_t *hintfile, uint64_t timestamp, uint32_t key_size, uint32_t value_size, off_t value_pos, const uint8_t *key)
 {
 
     if (hintfile->fd == -1)
@@ -123,10 +118,7 @@ bool hintfile_append(hintfile_t *hintfile, uint64_t timestamp,
     return true;
 }
 
-bool hintfile_read_at(const hintfile_t *hintfile,
-                      off_t offset,
-                      uint32_t size,
-                      uint8_t *out)
+bool hintfile_read_at(const hintfile_t *hintfile, off_t offset, uint32_t size, uint8_t *out)
 {
     if (hintfile->fd == -1 || out == NULL)
     {

@@ -41,15 +41,10 @@ typedef struct keydir
 void keydir_init(keydir_t *keydir);
 void keydir_free(keydir_t *keydir);
 
-// keydir_put — copies key and value bytes into the keydir.
-// Returns true if successful, false otherwise.
 bool keydir_put(keydir_t *keydir, const uint8_t *key, size_t key_length, const keydir_value_t *keydir_value);
 
-//  keydir_get — Returns a pointer to internal keydir_value_t if key is found, else NULL.
 const keydir_value_t *keydir_get(const keydir_t *keydir, const uint8_t *key, size_t key_length);
 
-// keydir_delete — frees the key bytes, marks tombstone.
-// Returns true if key is found, false otherwise.
 bool keydir_delete(keydir_t *keydir, const uint8_t *key, size_t key_length);
 
 #endif

@@ -20,9 +20,7 @@ typedef struct hint_header
     off_t value_pos;
 } hint_header_t;
 
-void hint_header_encode(uint8_t out[HINT_HEADER_SIZE],
-                        uint64_t timestamp, uint32_t key_size,
-                        uint32_t value_size, off_t value_pos);
+void hint_header_encode(uint8_t out[HINT_HEADER_SIZE], uint64_t timestamp, uint32_t key_size, uint32_t value_size, off_t value_pos);
 
 void hint_header_decode(hint_header_t *out, const uint8_t in[HINT_HEADER_SIZE]);
 

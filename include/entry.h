@@ -19,9 +19,7 @@ typedef struct entry_header
     uint32_t value_size;
 } entry_header_t;
 
-void entry_header_encode(uint8_t out[ENTRY_HEADER_SIZE],
-                         uint32_t crc, uint64_t timestamp,
-                         uint32_t key_size, uint32_t value_size);
+void entry_header_encode(uint8_t out[ENTRY_HEADER_SIZE], uint32_t crc, uint64_t timestamp, uint32_t key_size, uint32_t value_size);
 
 void entry_header_decode(entry_header_t *out, const uint8_t in[ENTRY_HEADER_SIZE]);
 

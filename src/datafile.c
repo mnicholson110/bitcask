@@ -17,8 +17,7 @@ void datafile_init(datafile_t *datafile)
     datafile->file_path = NULL;
 }
 
-static bool datafile_open_suffix(const char *suffix, datafile_t *datafile, const char *dir_path,
-                                 uint32_t file_id, datafile_mode_t mode)
+static bool datafile_open_suffix(const char *suffix, datafile_t *datafile, const char *dir_path, uint32_t file_id, datafile_mode_t mode)
 {
     char path[MAX_PATH_LEN];
     if (!build_file_path(dir_path, suffix, file_id, path, MAX_PATH_LEN))
@@ -53,14 +52,12 @@ static bool datafile_open_suffix(const char *suffix, datafile_t *datafile, const
     return true;
 }
 
-bool datafile_open(datafile_t *datafile, const char *dir_path,
-                   uint32_t file_id, datafile_mode_t mode)
+bool datafile_open(datafile_t *datafile, const char *dir_path, uint32_t file_id, datafile_mode_t mode)
 {
     return datafile_open_suffix(".data", datafile, dir_path, file_id, mode);
 }
 
-bool datafile_open_merge(datafile_t *datafile, const char *dir_path,
-                         uint32_t file_id, datafile_mode_t mode)
+bool datafile_open_merge(datafile_t *datafile, const char *dir_path, uint32_t file_id, datafile_mode_t mode)
 {
     return datafile_open_suffix(".data.merge", datafile, dir_path, file_id, mode);
 }
@@ -102,8 +99,7 @@ bool datafile_sync(datafile_t *datafile)
     return true;
 }
 
-bool datafile_append(datafile_t *datafile, uint64_t timestamp, const uint8_t *key, uint32_t key_size,
-                     const uint8_t *value, uint32_t value_size, keydir_value_t *out)
+bool datafile_append(datafile_t *datafile, uint64_t timestamp, const uint8_t *key, uint32_t key_size, const uint8_t *value, uint32_t value_size, keydir_value_t *out)
 {
     if (datafile->fd == -1 || datafile->mode == DATAFILE_READ || out == NULL)
     {
@@ -145,10 +141,7 @@ bool datafile_append(datafile_t *datafile, uint64_t timestamp, const uint8_t *ke
     return true;
 }
 
-bool datafile_read_at(const datafile_t *datafile,
-                      off_t offset,
-                      uint32_t size,
-                      uint8_t *out)
+bool datafile_read_at(const datafile_t *datafile, off_t offset, uint32_t size, uint8_t *out)
 {
     if (datafile->fd == -1 || out == NULL)
     {

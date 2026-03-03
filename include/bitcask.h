@@ -26,14 +26,11 @@ typedef struct bitcask_handle
     uint8_t opts;
 } bitcask_handle_t;
 
-bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
-                  uint8_t opts);
+bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path, uint8_t opts);
 
-bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key,
-                 size_t key_size, uint8_t **out, size_t *out_size);
+bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key, size_t key_size, uint8_t **out, size_t *out_size);
 
-bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key,
-                 size_t key_size, const uint8_t *value, size_t value_size);
+bool bitcask_put(bitcask_handle_t *bitcask, const uint8_t *key, size_t key_size, const uint8_t *value, size_t value_size);
 
 bool bitcask_delete(bitcask_handle_t *bitcask, const uint8_t *key, size_t key_size);
 
