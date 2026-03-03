@@ -2,7 +2,12 @@
 
 A minimal [Bitcask](https://riak.com/assets/bitcask-intro.pdf) key-value store in C. No external dependencies.
 
-Append-only writes, O(1) reads via an in-memory hash table (keydir), CRC32 integrity checks, and automatic file rotation at 256 MB.
+Behavior:
+- Append-only writes
+- O(1)-style reads via an in-memory hash table (keydir)
+- CRC32 integrity checks
+- Automatic file rotation at 1GiB
+- Hintfile generation on merge for fast startup
 
 ## API
 
@@ -30,9 +35,11 @@ Each entry is appended as:
 | crc32 (4) | timestamp_ns (8) | key_size (4) | value_size (4) | key (key_size) | value (value_size) |
 ```
 
-All integers are little-endian. Deletes are tombstones (value_size = 0). On open, every entry is replayed to rebuild the keydir.
+Hintfiles are created by `bitcask_merge` and are written as:
 
-Data files are named `01.data`, `02.data`, etc. A new file is created when the active file would exceed 256 MB.
+```
+| timestamp_ns (8) | key_size (4) | value_size (4) | value_pos (4) |
+```
 
 ## Build
 
@@ -48,7 +55,7 @@ make clean
 - [X] Compaction / merge — reclaim space from dead keys and old versions
     - [X] Clean up empty merge files
 - [X] Hint files - generate hint files on merge for faster startup
-    - [ ] Clean up the disaster in bitcask.c from implementing this 
+    - [X] Clean up the disaster in bitcask.c from implementing this 
 - [ ] Merge flags - flags for automatic merge behavior
 - [ ] Fold — iterate over all live key-value pairs
 - [ ] List Keys — list all live keys in the DB
