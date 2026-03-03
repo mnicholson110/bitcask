@@ -2,15 +2,10 @@
 #include "../include/entry.h"
 #include "../include/hintfile.h"
 #include "../include/io_util.h"
-#include <dirent.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <time.h>
-#include <unistd.h>
 
 static inline bool can_write(uint8_t opts)
 {
@@ -79,7 +74,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     uint32_t *ids, *hints;
     size_t count = 0, hint_count = 0;
 
-    if (!scan_datafiles_and_hintfiles(dir_path, bitcask->opts, &ids, &count, &hints, &hint_count))
+    if (!scan_datafiles_and_hintfiles(dir_path, can_write(bitcask->opts), &ids, &count, &hints, &hint_count))
     {
         return false;
     }

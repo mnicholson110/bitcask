@@ -1,5 +1,4 @@
 #include "../include/io_util.h"
-#include "../include/bitcask.h"
 #include "../include/entry.h"
 #include "../include/hint.h"
 #include <dirent.h>
@@ -172,7 +171,7 @@ bool build_file_path(const char *dir_path, const char *suffix, uint32_t file_id,
     return true;
 }
 
-static DIR *check_path(const char *dir_path, uint8_t opts)
+static DIR *check_path(const char *dir_path, bool can_write)
 {
     struct stat sb;
     if (stat(dir_path, &sb) == 0)
@@ -188,7 +187,7 @@ static DIR *check_path(const char *dir_path, uint8_t opts)
         return NULL;
     }
 
-    if ((opts & BITCASK_READ_WRITE) == 0)
+    if (!can_write)
     {
         return NULL;
     }
@@ -249,11 +248,11 @@ static bool scan_files(DIR *dirp, uint32_t **ids, size_t *count, const char *suf
     return true;
 }
 
-bool scan_datafiles_and_hintfiles(const char *dir_path, uint8_t opts,
+bool scan_datafiles_and_hintfiles(const char *dir_path, bool can_write,
                                   uint32_t **ids, size_t *count,
                                   uint32_t **hints, size_t *hint_count)
 {
-    DIR *dirp = check_path(dir_path, opts);
+    DIR *dirp = check_path(dir_path, can_write);
     if (dirp == NULL)
     {
         return false;

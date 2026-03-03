@@ -1,7 +1,6 @@
 #ifndef bitcask_io_util_h
 #define bitcask_io_util_h
 
-#include <dirent.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -21,7 +20,7 @@ bool write_hint_exact(int fd, const uint8_t *header, const uint8_t *key,
 
 bool build_file_path(const char *dir_path, const char *suffix, uint32_t file_id, char *out, size_t out_size);
 
-bool scan_datafiles_and_hintfiles(const char *dir_path, uint8_t opts,
+bool scan_datafiles_and_hintfiles(const char *dir_path, bool can_write,
                                   uint32_t **ids, size_t *count,
                                   uint32_t **hints, size_t *hint_count);
 

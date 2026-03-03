@@ -1,6 +1,5 @@
 #include "../include/crc.h"
 #include "../include/io_util.h"
-#include <unistd.h>
 
 bool crc32_validate(uint32_t expected_crc, const uint8_t header[ENTRY_HEADER_SIZE],
                     const uint8_t *key, uint32_t key_size,

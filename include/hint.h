@@ -2,7 +2,7 @@
 #define bitcask_hint_h
 
 #include <stdint.h>
-#include <stdio.h>
+#include <sys/types.h>
 
 // Hint header is 20 bytes when encoded
 // | ts (8) | key_size (4) | value_size (4) | value_pos (4) |
