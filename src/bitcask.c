@@ -631,3 +631,29 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
 
     return true;
 }
+
+bool bitcask_fold(bitcask_handle_t *bitcask, bitcask_fold_fn fun, void *acc)
+{
+    for (size_t i = 0; i < bitcask->keydir.capacity; i++)
+    {
+        if (bitcask->keydir.entries[i].state != ENTRY_OCCUPIED)
+        {
+            continue;
+        }
+        const uint8_t *key = bitcask->keydir.entries[i].key;
+        size_t key_size = bitcask->keydir.entries[i].key_length;
+        uint8_t *value;
+        size_t value_size;
+        if (!bitcask_get(bitcask, key, key_size, &value, &value_size))
+        {
+            return false;
+        }
+        if (!fun(key, key_size, value, value_size, acc))
+        {
+            free(value);
+            return false;
+        }
+        free(value);
+    }
+    return true;
+}

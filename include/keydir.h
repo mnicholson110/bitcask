@@ -39,6 +39,7 @@ typedef struct keydir
 } keydir_t;
 
 void keydir_init(keydir_t *keydir);
+
 void keydir_free(keydir_t *keydir);
 
 bool keydir_put(keydir_t *keydir, const uint8_t *key, size_t key_length, const keydir_value_t *keydir_value);

@@ -58,6 +58,7 @@ make clean
 - [X] Hint files - generate hint files on merge for faster startup
     - [X] Clean up the disaster in bitcask.c from implementing this 
 - [ ] Merge flags - flags for automatic merge behavior
-- [ ] Fold — iterate over all live key-value pairs
+- [X] Fold — iterate over all live key-value pairs
+    - [ ] Works but not happy with the API
 - [ ] List Keys — list all live keys in the DB
 - [X] On-disk single-writer lockfile — prevent concurrent read-write opens

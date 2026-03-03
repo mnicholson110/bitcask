@@ -14,6 +14,8 @@ typedef enum bitcask_opts
     BITCASK_SYNC_ON_PUT = 2
 } bitcask_opts_t;
 
+typedef bool (*bitcask_fold_fn)(const uint8_t *key, size_t key_size, const uint8_t *value, size_t value_size, void *acc);
+
 typedef struct bitcask_handle
 {
     keydir_t keydir;
@@ -41,9 +43,9 @@ void bitcask_close(bitcask_handle_t *bitcask);
 
 bool bitcask_merge(bitcask_handle_t *bitcask);
 
+bool bitcask_fold(bitcask_handle_t *bitcask, bitcask_fold_fn fun, void *acc);
+
 // eventually:
 // bitcask_list_keys()
-// bitcask_merge()
-// bitcask_fold()
 
 #endif
