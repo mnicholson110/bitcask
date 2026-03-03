@@ -194,3 +194,91 @@ bool datafile_copy_entry(datafile_t *src, datafile_t *dest, off_t src_offset, si
 
     return true;
 }
+
+bool datafile_populate_keydir(datafile_t *datafile, keydir_t *keydir)
+{
+    off_t offset = 0;
+
+    while (offset < datafile->write_offset)
+    {
+        uint32_t remaining = (datafile->write_offset - offset);
+        if (remaining < ENTRY_HEADER_SIZE)
+        {
+            return false;
+        }
+
+        entry_header_t header;
+        uint8_t hdr_buf[ENTRY_HEADER_SIZE];
+        if (!datafile_read_at(datafile, offset, ENTRY_HEADER_SIZE, hdr_buf))
+        {
+            return false;
+        }
+
+        entry_header_decode(&header, hdr_buf);
+
+        if (header.key_size == 0)
+        {
+            return false;
+        }
+
+        if (header.key_size > MAX_KEY_SIZE || header.value_size > MAX_VALUE_SIZE)
+        {
+            return false;
+        }
+
+        uint32_t remaining_payload = remaining - ENTRY_HEADER_SIZE;
+        if (header.key_size > remaining_payload)
+        {
+            return false;
+        }
+        if (header.value_size > (remaining_payload - header.key_size))
+        {
+            return false;
+        }
+
+        offset += ENTRY_HEADER_SIZE;
+
+        uint8_t *key = malloc(header.key_size);
+        if (key == NULL)
+        {
+            return false;
+        }
+        if (!datafile_read_at(datafile, offset, header.key_size, key))
+        {
+            free(key);
+            return false;
+        }
+
+        offset += header.key_size;
+
+        if (!crc32_validate(header.crc, hdr_buf, key, header.key_size, datafile->fd, offset, header.value_size))
+        {
+            free(key);
+            return false;
+        }
+
+        if (header.value_size != 0)
+        {
+
+            keydir_value_t keydir_value = {
+                .file_id = datafile->file_id,
+                .value_pos = offset,
+                .value_size = header.value_size,
+                .timestamp = header.timestamp};
+
+            if (!keydir_put(keydir, key, header.key_size, &keydir_value))
+            {
+                free(key);
+                return false;
+            }
+        }
+        else
+        {
+            keydir_delete(keydir, key, header.key_size);
+        }
+        free(key);
+
+        offset += header.value_size;
+    }
+    return true;
+}

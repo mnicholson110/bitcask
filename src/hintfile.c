@@ -140,3 +140,94 @@ bool hintfile_read_at(const hintfile_t *hintfile,
 
     return true;
 }
+
+bool hintfile_populate_keydir(uint32_t id, keydir_t *keydir, const char *dir_path)
+{
+    int path_max = strlen(dir_path) + 40;
+    char hint_path[path_max];
+    if (!build_file_path(dir_path, ".hint", id, hint_path, path_max))
+    {
+        return false;
+    }
+
+    int fd = open(hint_path, O_RDONLY, 0644);
+    if (fd < 0)
+    {
+        return false;
+    }
+
+    struct stat st;
+    if (fstat(fd, &st) < 0)
+    {
+        close(fd);
+        return false;
+    }
+    if (st.st_size < 0)
+    {
+        close(fd);
+        return false;
+    }
+
+    off_t offset = 0, end = st.st_size;
+
+    while (offset < end)
+    {
+        uint32_t remaining = (end - offset);
+        if (remaining < HINT_HEADER_SIZE)
+        {
+            close(fd);
+            return false;
+        }
+
+        hint_header_t header;
+        uint8_t hint_buf[HINT_HEADER_SIZE];
+        if (!pread_exact(fd, hint_buf, HINT_HEADER_SIZE, offset))
+        {
+            close(fd);
+            return false;
+        }
+
+        hint_header_decode(&header, hint_buf);
+
+        if (header.key_size == 0)
+        {
+            close(fd);
+            return false;
+        }
+
+        offset += HINT_HEADER_SIZE;
+
+        uint8_t *key = malloc(header.key_size);
+        if (key == NULL)
+        {
+            close(fd);
+            return false;
+        }
+        if (!pread_exact(fd, key, header.key_size, offset))
+        {
+            close(fd);
+            free(key);
+            return false;
+        }
+
+        offset += header.key_size;
+
+        keydir_value_t keydir_value = {
+            .file_id = id,
+            .value_pos = header.value_pos,
+            .value_size = header.value_size,
+            .timestamp = header.timestamp};
+
+        if (!keydir_put(keydir, key, header.key_size, &keydir_value))
+        {
+            close(fd);
+            free(key);
+            return false;
+        }
+
+        free(key);
+    }
+
+    close(fd);
+    return true;
+}

@@ -1,5 +1,4 @@
 #include "../include/bitcask.h"
-#include "../include/crc.h"
 #include "../include/entry.h"
 #include "../include/hintfile.h"
 #include "../include/io_util.h"
@@ -29,195 +28,6 @@ static int cmp_u32(const void *a, const void *b)
     uint32_t x = *(const uint32_t *)a;
     uint32_t y = *(const uint32_t *)b;
     return (x > y) - (x < y); // avoids overflow from subtraction
-}
-
-static bool populate_keydir_from_hint(uint32_t id, bitcask_handle_t *bitcask)
-{
-    int path_max = strlen(bitcask->dir_path) + 40;
-    char hint_path[path_max];
-    if (!build_file_path(bitcask->dir_path, ".hint", id, hint_path, path_max))
-    {
-        return false;
-    }
-
-    int fd = open(hint_path, O_RDWR, 0644);
-    if (fd < 0)
-    {
-        return false;
-    }
-
-    struct stat st;
-    if (fstat(fd, &st) < 0)
-    {
-        close(fd);
-        return false;
-    }
-    if (st.st_size < 0 || (size_t)st.st_size > MAX_FILE_SIZE)
-    {
-        close(fd);
-        return false;
-    }
-
-    off_t offset = 0, end = st.st_size;
-
-    while (offset < end)
-    {
-        uint64_t timestamp;
-        uint32_t key_size, value_size;
-        off_t value_pos;
-
-        uint32_t remaining = (end - offset);
-        if (remaining < 20)
-        {
-            return false;
-        }
-
-        uint8_t hint_buf[ENTRY_HEADER_SIZE];
-        if (!pread_exact(fd, hint_buf, 20, offset))
-        {
-            return false;
-        }
-
-        timestamp = decode_u64_le(hint_buf);
-        key_size = decode_u32_le(hint_buf + 8);
-        value_size = decode_u32_le(hint_buf + 12);
-        value_pos = decode_u32_le(hint_buf + 16);
-
-        if (key_size == 0)
-        {
-            return false;
-        }
-
-        if (key_size > MAX_KEY_SIZE || value_size > MAX_VALUE_SIZE)
-        {
-            return false;
-        }
-
-        uint32_t remaining_payload = remaining - 20;
-        if (key_size > remaining_payload)
-        {
-            return false;
-        }
-
-        offset += 20;
-
-        uint8_t *key = malloc(key_size);
-        if (key == NULL)
-        {
-            return false;
-        }
-        if (!pread_exact(fd, key, key_size, offset))
-        {
-            free(key);
-            return false;
-        }
-
-        offset += key_size;
-
-        keydir_value_t keydir_value = {
-            .file_id = id,
-            .value_pos = value_pos,
-            .value_size = value_size,
-            .timestamp = timestamp};
-
-        if (!keydir_put(&bitcask->keydir, key, key_size, &keydir_value))
-        {
-            free(key);
-            return false;
-        }
-
-        free(key);
-    }
-
-    return true;
-}
-
-static bool populate_keydir(datafile_t *datafile, keydir_t *keydir)
-{
-    off_t offset = 0;
-
-    while (offset < datafile->write_offset)
-    {
-        uint32_t remaining = (datafile->write_offset - offset);
-        if (remaining < ENTRY_HEADER_SIZE)
-        {
-            return false;
-        }
-
-        entry_header_t header;
-        uint8_t hdr_buf[ENTRY_HEADER_SIZE];
-        if (!datafile_read_at(datafile, offset, ENTRY_HEADER_SIZE, hdr_buf))
-        {
-            return false;
-        }
-
-        entry_header_decode(&header, hdr_buf);
-
-        if (header.key_size == 0)
-        {
-            return false;
-        }
-
-        if (header.key_size > MAX_KEY_SIZE || header.value_size > MAX_VALUE_SIZE)
-        {
-            return false;
-        }
-
-        uint32_t remaining_payload = remaining - ENTRY_HEADER_SIZE;
-        if (header.key_size > remaining_payload)
-        {
-            return false;
-        }
-        if (header.value_size > (remaining_payload - header.key_size))
-        {
-            return false;
-        }
-
-        offset += ENTRY_HEADER_SIZE;
-
-        uint8_t *key = malloc(header.key_size);
-        if (key == NULL)
-        {
-            return false;
-        }
-        if (!datafile_read_at(datafile, offset, header.key_size, key))
-        {
-            free(key);
-            return false;
-        }
-
-        offset += header.key_size;
-
-        if (!crc32_validate(header.crc, hdr_buf, key, header.key_size, datafile->fd, offset, header.value_size))
-        {
-            free(key);
-            return false;
-        }
-
-        if (header.value_size != 0)
-        {
-
-            keydir_value_t keydir_value = {
-                .file_id = datafile->file_id,
-                .value_pos = offset,
-                .value_size = header.value_size,
-                .timestamp = header.timestamp};
-
-            if (!keydir_put(keydir, key, header.key_size, &keydir_value))
-            {
-                free(key);
-                return false;
-            }
-        }
-        else
-        {
-            keydir_delete(keydir, key, header.key_size);
-        }
-        free(key);
-
-        offset += header.value_size;
-    }
-    return true;
 }
 
 static bool parse_datafile_name(const struct dirent *dp, uint32_t *out, const char *suffix)
@@ -434,7 +244,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     {
         if (cur_hint < hint_count && bitcask->inactive_files[i].file_id == hints[cur_hint])
         {
-            if (!populate_keydir_from_hint(hints[cur_hint], bitcask))
+            if (!hintfile_populate_keydir(hints[cur_hint], &bitcask->keydir, bitcask->dir_path))
             {
                 free(ids);
                 free(hints);
@@ -444,7 +254,7 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
             }
             cur_hint++;
         }
-        else if (!populate_keydir(&bitcask->inactive_files[i], &bitcask->keydir))
+        else if (!datafile_populate_keydir(&bitcask->inactive_files[i], &bitcask->keydir))
         {
             free(ids);
             free(hints);
@@ -874,7 +684,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
         // but should be equal to inactive_count here
         if (bitcask->inactive_files[i].file_id == merge_hintfiles[i].file_id)
         {
-            if (!populate_keydir_from_hint(merge_hintfiles[i].file_id, bitcask))
+            if (!hintfile_populate_keydir(merge_hintfiles[i].file_id, &bitcask->keydir, bitcask->dir_path))
             {
                 for (size_t i = 0; i < bitcask->inactive_count; i++)
                 {
@@ -884,7 +694,7 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
                 return false;
             }
         }
-        else if (!populate_keydir(&bitcask->inactive_files[i], &bitcask->keydir))
+        else if (!datafile_populate_keydir(&bitcask->inactive_files[i], &bitcask->keydir))
         {
             for (size_t i = 0; i < bitcask->inactive_count; i++)
             {
@@ -902,5 +712,6 @@ bool bitcask_merge(bitcask_handle_t *bitcask)
     free(merge_hintfiles);
 
     bitcask->next_file_id += (merge_idx + 1);
+
     return true;
 }

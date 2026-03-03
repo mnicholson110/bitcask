@@ -54,4 +54,6 @@ bool datafile_read_at(const datafile_t *datafile,
 
 bool datafile_copy_entry(datafile_t *src, datafile_t *dest, off_t src_offset, size_t entry_size);
 
+bool datafile_populate_keydir(datafile_t *datafile, keydir_t *keydir);
+
 #endif

@@ -1,10 +1,10 @@
 #ifndef bitcask_hintfile_h
 #define bitcask_hintfile_h
 
+#include "keydir.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <sys/types.h>
 
 typedef struct hintfile
@@ -37,5 +37,7 @@ bool hintfile_read_at(const hintfile_t *hintfile,
                       off_t offset,
                       uint32_t size,
                       uint8_t *out);
+
+bool hintfile_populate_keydir(uint32_t id, keydir_t *keydir, const char *dir_path);
 
 #endif
