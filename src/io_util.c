@@ -1,12 +1,23 @@
 #include "../include/io_util.h"
+#include "../include/bitcask.h"
 #include "../include/entry.h"
 #include "../include/hint.h"
+#include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/uio.h>
 #include <unistd.h>
+
+static int cmp_u32(const void *a, const void *b)
+{
+    uint32_t x = *(const uint32_t *)a;
+    uint32_t y = *(const uint32_t *)b;
+    return (x > y) - (x < y); // avoids overflow from subtraction
+}
 
 bool pread_exact(int fd, uint8_t *buf, size_t len, off_t offset)
 {
@@ -158,5 +169,110 @@ bool build_file_path(const char *dir_path, const char *suffix, uint32_t file_id,
         return false;
     }
 
+    return true;
+}
+
+static DIR *check_path(const char *dir_path, uint8_t opts)
+{
+    struct stat sb;
+    if (stat(dir_path, &sb) == 0)
+    {
+        if (S_ISDIR(sb.st_mode))
+        {
+            return opendir(dir_path);
+        }
+    }
+
+    if (errno != ENOENT)
+    {
+        return NULL;
+    }
+
+    if ((opts & BITCASK_READ_WRITE) == 0)
+    {
+        return NULL;
+    }
+
+    if (mkdir(dir_path, 0755) != 0)
+    {
+        return NULL;
+    }
+
+    return opendir(dir_path);
+}
+
+static bool scan_files(DIR *dirp, uint32_t **ids, size_t *count, const char *suffix)
+{
+    // return an allocated list of file_ids
+    size_t limit = 20;
+    *ids = malloc(sizeof(uint32_t) * limit);
+    if (*ids == NULL)
+    {
+        return false;
+    }
+    struct dirent *dp;
+    while ((dp = readdir(dirp)) != NULL)
+    {
+        size_t name_len = strlen(dp->d_name);
+        size_t suffix_len = strlen(suffix);
+        if (name_len <= suffix_len)
+        {
+            continue;
+        }
+        if (strcmp(dp->d_name + name_len - suffix_len, suffix) != 0)
+        {
+            continue;
+        }
+        char *end = NULL;
+        uint32_t id = strtoul(dp->d_name, &end, 10);
+        if (end != dp->d_name + name_len - suffix_len)
+        {
+            continue;
+        }
+
+        (*ids)[*count] = id;
+        (*count)++;
+        if (*count >= limit)
+        {
+            limit *= 2;
+            void *tmp = realloc(*ids, sizeof(uint32_t) * limit);
+            if (tmp == NULL)
+            {
+                free(*ids);
+                return false;
+            }
+            *ids = tmp;
+        }
+    }
+
+    rewinddir(dirp);
+    return true;
+}
+
+bool scan_datafiles_and_hintfiles(const char *dir_path, uint8_t opts,
+                                  uint32_t **ids, size_t *count,
+                                  uint32_t **hints, size_t *hint_count)
+{
+    DIR *dirp = check_path(dir_path, opts);
+    if (dirp == NULL)
+    {
+        return false;
+    }
+
+    if (!scan_files(dirp, ids, count, ".data"))
+    {
+        closedir(dirp);
+        return false;
+    };
+    qsort(*ids, *count, sizeof(*ids[0]), cmp_u32);
+
+    if (!scan_files(dirp, hints, hint_count, ".hint"))
+    {
+        closedir(dirp);
+        return false;
+    };
+    qsort(*hints, *hint_count, sizeof(*hints[0]), cmp_u32);
+
+    closedir(dirp);
     return true;
 }

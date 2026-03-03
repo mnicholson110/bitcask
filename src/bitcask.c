@@ -3,7 +3,6 @@
 #include "../include/hintfile.h"
 #include "../include/io_util.h"
 #include <dirent.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,93 +20,6 @@ static inline bool can_write(uint8_t opts)
 static inline bool sync_on_put(uint8_t opts)
 {
     return (opts & BITCASK_SYNC_ON_PUT) != 0;
-}
-
-static int cmp_u32(const void *a, const void *b)
-{
-    uint32_t x = *(const uint32_t *)a;
-    uint32_t y = *(const uint32_t *)b;
-    return (x > y) - (x < y); // avoids overflow from subtraction
-}
-
-static bool parse_datafile_name(const struct dirent *dp, uint32_t *out, const char *suffix)
-{
-    const char *name = dp->d_name;
-
-    const size_t suffix_len = 5;
-    size_t len = strlen(name);
-    if (len <= suffix_len || strcmp(name + (len - suffix_len), suffix) != 0)
-    {
-        return false;
-    }
-
-    size_t num_len = len - suffix_len;
-    char *end = NULL;
-    unsigned long parsed = strtoul(name, &end, 10);
-    if (end != name + num_len || parsed > UINT32_MAX)
-    {
-        return false;
-    }
-
-    *out = (uint32_t)parsed;
-    return true;
-}
-
-static bool check_path(const char *dir_path, uint8_t opts)
-{
-    struct stat sb;
-    if (stat(dir_path, &sb) == 0)
-    {
-        return S_ISDIR(sb.st_mode);
-    }
-
-    if (errno != ENOENT)
-    {
-        return false;
-    }
-
-    if (!can_write(opts))
-    {
-        return false;
-    }
-
-    return mkdir(dir_path, 0755) == 0;
-}
-
-static bool scan_files(DIR *dirp, uint32_t **ids, size_t *count, const char *suffix)
-{
-    // return an allocated list of file_ids
-    size_t limit = 20;
-    *ids = malloc(sizeof(uint32_t) * limit);
-    if (*ids == NULL)
-    {
-        return false;
-    }
-    struct dirent *dp;
-    while ((dp = readdir(dirp)) != NULL)
-    {
-        uint32_t id;
-        if (!parse_datafile_name(dp, &id, suffix))
-        {
-            continue;
-        }
-
-        (*ids)[*count] = id;
-        (*count)++;
-        if (*count >= limit)
-        {
-            limit *= 2;
-            void *tmp = realloc(*ids, sizeof(uint32_t) * limit);
-            if (tmp == NULL)
-            {
-                free(*ids);
-                return false;
-            }
-            *ids = tmp;
-        }
-    }
-
-    return true;
 }
 
 static bool rotate_active_file(bitcask_handle_t *bitcask)
@@ -164,39 +76,18 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     bitcask->opts = opts;
     datafile_init(&bitcask->active_file);
 
-    if (!check_path(dir_path, opts))
-    {
-        return false;
-    }
-
-    DIR *dirp = opendir(dir_path);
-    if (dirp == NULL)
-    {
-        return false;
-    }
-
     uint32_t *ids, *hints;
     size_t count = 0, hint_count = 0;
 
-    if (!scan_files(dirp, &ids, &count, ".data"))
+    if (!scan_datafiles_and_hintfiles(dir_path, bitcask->opts, &ids, &count, &hints, &hint_count))
     {
-        closedir(dirp);
         return false;
-    };
+    }
 
-    rewinddir(dirp);
-
-    if (!scan_files(dirp, &hints, &hint_count, ".hint"))
-    {
-        free(ids);
-        closedir(dirp);
-        return false;
-    };
     if (count == 0 && !can_write(opts))
     {
         free(ids);
         free(hints);
-        closedir(dirp);
         return false;
     }
 
@@ -207,18 +98,14 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
     {
         free(ids);
         free(hints);
-        closedir(dirp);
         return false;
     }
-    qsort(ids, count, sizeof(ids[0]), cmp_u32);
-    qsort(hints, hint_count, sizeof(hints[0]), cmp_u32);
 
     bitcask->dir_path = strdup(dir_path);
     if (bitcask->dir_path == NULL)
     {
         free(ids);
         free(hints);
-        closedir(dirp);
         bitcask_close(bitcask);
         return false;
     }
@@ -229,7 +116,6 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         if (!datafile_open(&bitcask->inactive_files[i], bitcask->dir_path, ids[i], DATAFILE_READ))
         {
             free(ids);
-            closedir(dirp);
             bitcask_close(bitcask);
             return false;
         }
@@ -248,7 +134,6 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
             {
                 free(ids);
                 free(hints);
-                closedir(dirp);
                 bitcask_close(bitcask);
                 return false;
             }
@@ -258,7 +143,6 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         {
             free(ids);
             free(hints);
-            closedir(dirp);
             bitcask_close(bitcask);
             return false;
         }
@@ -274,7 +158,6 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
         {
             free(ids);
             free(hints);
-            closedir(dirp);
             bitcask_close(bitcask);
             return false;
         }
@@ -283,7 +166,6 @@ bool bitcask_open(bitcask_handle_t *bitcask, const char *dir_path,
 
     free(ids);
     free(hints);
-    closedir(dirp);
     return true;
 }
 

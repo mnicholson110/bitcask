@@ -2,6 +2,7 @@ CC ?= cc
 CFLAGS ?= -Wall -Wextra -Iinclude
 LDFLAGS ?=
 LDLIBS ?= 
+TEST_ASAN_FLAGS ?= -fsanitize=address -fno-omit-frame-pointer -g
 
 SRC := $(wildcard src/*.c)
 TEST_SRC := test/correctness_test.c
@@ -20,7 +21,7 @@ $(BIN_DIR):
 test: $(TEST_BIN)
 
 $(TEST_BIN): $(SRC) $(TEST_SRC) | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(SRC) $(TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
+	$(CC) $(CFLAGS) $(TEST_ASAN_FLAGS) $(SRC) $(TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
 bench: $(BENCH_BIN)
 
