@@ -169,7 +169,7 @@ bool write_hint_exact(int fd, const uint8_t *header, const uint8_t *key, size_t 
 
 bool build_file_path(const char *dir_path, const char *suffix, uint32_t file_id, char *out, size_t out_size)
 {
-    int dir_len = strlen(dir_path);
+    size_t dir_len = strlen(dir_path);
     bool has_slash = (dir_len > 0 && dir_path[dir_len - 1] == '/');
 
     int path_n = snprintf(out, out_size, "%s%s%02" PRIu32 "%s", dir_path,
@@ -264,10 +264,16 @@ bool scan_dir(const char *dir_path, bool can_write, uint32_t **datafiles, size_t
             {
                 limit *= 2;
                 void *tmp = realloc(*datafiles, sizeof(uint32_t) * limit);
-                void *tmp_hint = realloc(*hints, sizeof(uint32_t) * limit);
-                if (tmp == NULL || tmp_hint == NULL)
+                if (tmp == NULL)
                 {
                     free(*datafiles);
+                    closedir(dirp);
+                    return false;
+                }
+
+                void *tmp_hint = realloc(*hints, sizeof(uint32_t) * limit);
+                if (tmp_hint == NULL)
+                {
                     free(*hints);
                     closedir(dirp);
                     return false;
@@ -289,10 +295,16 @@ bool scan_dir(const char *dir_path, bool can_write, uint32_t **datafiles, size_t
             {
                 limit *= 2;
                 void *tmp = realloc(*datafiles, sizeof(uint32_t) * limit);
-                void *tmp_hint = realloc(*hints, sizeof(uint32_t) * limit);
-                if (tmp == NULL || tmp_hint == NULL)
+                if (tmp == NULL)
                 {
                     free(*datafiles);
+                    closedir(dirp);
+                    return false;
+                }
+
+                void *tmp_hint = realloc(*hints, sizeof(uint32_t) * limit);
+                if (tmp_hint == NULL)
+                {
                     free(*hints);
                     closedir(dirp);
                     return false;
@@ -340,4 +352,20 @@ void unlock_dir(const char *dir_path)
     }
 
     (void)unlink(lock_path);
+}
+
+bool sync_dir(const char *dir_path)
+{
+    int fd = open(dir_path, (O_RDONLY | O_DIRECTORY), 0664);
+    if (fd == -1)
+    {
+        return false;
+    }
+    if (fsync(fd) == -1)
+    {
+        close(fd);
+        return false;
+    }
+    close(fd);
+    return true;
 }

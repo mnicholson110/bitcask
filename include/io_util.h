@@ -24,6 +24,8 @@ void unlock_dir(const char *dir_path);
 
 bool lock_dir(const char *dir_path);
 
+bool sync_dir(const char *dir_path);
+
 static inline void encode_u32_le(uint8_t *buf, uint32_t i)
 {
     buf[0] = (uint8_t)(i);

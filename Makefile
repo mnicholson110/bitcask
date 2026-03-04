@@ -1,8 +1,8 @@
-CC ?= cc
+CC ?= gcc
 CFLAGS ?= -Wall -Wextra -Iinclude
 LDFLAGS ?=
 LDLIBS ?= 
-TEST_ASAN_FLAGS ?= -fsanitize=address -fno-omit-frame-pointer -g
+TEST_ASAN_FLAGS ?=
 
 SRC := $(wildcard src/*.c)
 TEST_SRC := test/correctness_test.c
