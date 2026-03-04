@@ -206,6 +206,8 @@ bool bitcask_get(bitcask_handle_t *bitcask, const uint8_t *key, size_t key_size,
     }
     else
     {
+        // one day I'll improve this linear scan
+        // that day is not today
         for (size_t i = 0; i < bitcask->inactive_count; i++)
         {
             if (bitcask->inactive_files[i].file_id == entry->file_id)
