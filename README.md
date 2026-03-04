@@ -62,3 +62,4 @@ make clean
     - [ ] Works but not happy with the API
 - [ ] List Keys — list all live keys in the DB
 - [X] On-disk single-writer lockfile — prevent concurrent read-write opens
+- [ ] Batch IO 
