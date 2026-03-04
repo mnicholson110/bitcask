@@ -25,7 +25,7 @@ typedef struct bitcask_handle
     size_t inactive_capacity;
     uint32_t next_file_id;
     char *dir_path;
-    bool has_write_lock;
+    int lockfile_fd;
     uint8_t opts;
 } bitcask_handle_t;
 

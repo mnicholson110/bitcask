@@ -1148,7 +1148,7 @@ static bool test_lock_lifecycle_rw_open_close(void)
     }
 
     bitcask_close(&db);
-    return !path_exists(lock_path);
+    return path_exists(lock_path);
 }
 
 static bool test_lock_single_writer_enforced(void)
@@ -1236,7 +1236,7 @@ static bool test_lock_read_only_does_not_unlock_writer(void)
     }
 
     bitcask_close(&writer);
-    if (path_exists(lock_path))
+    if (!path_exists(lock_path))
     {
         return false;
     }
@@ -1246,10 +1246,10 @@ static bool test_lock_read_only_does_not_unlock_writer(void)
         return false;
     }
     bitcask_close(&writer2);
-    return true;
+    return path_exists(lock_path);
 }
 
-static bool test_lockfile_blocks_rw_open(void)
+static bool test_lockfile_allows_rw_open(void)
 {
     const char *dir = "test/test-lock-stale-file";
     char lock_path[512];
@@ -1277,11 +1277,11 @@ static bool test_lockfile_blocks_rw_open(void)
     }
 
     bitcask_handle_t db;
-    if (bitcask_open(&db, dir, BITCASK_READ_WRITE))
+    if (!bitcask_open(&db, dir, BITCASK_READ_WRITE))
     {
-        bitcask_close(&db);
         return false;
     }
+    bitcask_close(&db);
     return path_exists(lock_path);
 }
 
@@ -1701,7 +1701,7 @@ int main(void)
         {.name = "lock_lifecycle_rw_open_close", .fn = test_lock_lifecycle_rw_open_close},
         {.name = "lock_single_writer_enforced", .fn = test_lock_single_writer_enforced},
         {.name = "lock_read_only_does_not_unlock_writer", .fn = test_lock_read_only_does_not_unlock_writer},
-        {.name = "lockfile_blocks_rw_open", .fn = test_lockfile_blocks_rw_open},
+        {.name = "lockfile_allows_rw_open", .fn = test_lockfile_allows_rw_open},
         {.name = "crc_not_checked_on_get", .fn = test_crc_not_checked_on_get},
         {.name = "crc_rejected_on_reopen", .fn = test_crc_rejected_on_reopen},
         {.name = "merge_compacts_inactive_files", .fn = test_merge_compacts_inactive_files},

@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -222,7 +223,7 @@ static uint32_t parse_file_id(const char *file)
     return id;
 }
 
-bool scan_dir(const char *dir_path, bool can_write, uint32_t **datafiles, size_t *count, uint32_t **hints, size_t *hint_count, bool *locked)
+bool scan_dir(const char *dir_path, bool can_write, uint32_t **datafiles, size_t *count, uint32_t **hints, size_t *hint_count)
 {
     DIR *dirp = check_path(dir_path, can_write);
     if (dirp == NULL)
@@ -313,10 +314,6 @@ bool scan_dir(const char *dir_path, bool can_write, uint32_t **datafiles, size_t
                 *hints = tmp_hint;
             }
         }
-        else if (strcmp(dp->d_name, "dir.lock") == 0)
-        {
-            *locked = true;
-        }
     }
 
     qsort(*datafiles, *count, sizeof(*datafiles[0]), cmp_u32);
@@ -325,7 +322,7 @@ bool scan_dir(const char *dir_path, bool can_write, uint32_t **datafiles, size_t
     return true;
 }
 
-bool lock_dir(const char *dir_path)
+bool lock_dir(const char *dir_path, int *out_fd)
 {
     char lock_path[MAX_PATH_LEN];
     if (!build_lock_path(dir_path, lock_path, sizeof(lock_path)))
@@ -333,25 +330,30 @@ bool lock_dir(const char *dir_path)
         return false;
     }
 
-    int fd = open(lock_path, (O_WRONLY | O_CREAT | O_EXCL), 0644);
-    if (fd == -1)
+    int fd = open(lock_path, O_RDWR | O_CREAT, 0644);
+    if (fd < 0)
     {
         return false;
     }
 
-    close(fd);
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0)
+    {
+        close(fd);
+        return false;
+    }
+
+    *out_fd = fd;
     return true;
 }
 
-void unlock_dir(const char *dir_path)
+void unlock_dir(int *fd)
 {
-    char lock_path[MAX_PATH_LEN];
-    if (!build_lock_path(dir_path, lock_path, sizeof(lock_path)))
+    if (*fd >= 0)
     {
-        return;
+        flock(*fd, LOCK_UN);
+        close(*fd);
+        *fd = -1;
     }
-
-    (void)unlink(lock_path);
 }
 
 bool sync_dir(const char *dir_path)
